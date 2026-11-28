@@ -2,7 +2,7 @@
 # @file post-installx/executable_post-cua-driver.sh
 # @brief Opt-in installation and configuration of the official Cua Driver
 # @description
-#   When explicitly selected, installs the official Cua Driver (`cua-driver` + `cua` CLI) on a
+#   When explicitly selected, installs the official Cua Driver runtime on a
 #   supported interactive desktop.
 #   Configures GNOME Wayland support (`winrects@cua`), disables telemetry, and sets up native
 #   user autostart. Agent registration is owned by the operator's harness configuration.
@@ -60,13 +60,7 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 
 if ! command -v cua-driver >/dev/null 2>&1; then
-  warn 'Cua Driver is selected but no immutable verified artifact is present in this release'
-  exit 78
-fi
-
-if ! command -v cua-driver >/dev/null 2>&1; then
-  warn "cua-driver binary not present after installer — skipping post-configuration"
-  exit 0
+  "$HOME/.local/bin/install-cua-driver-runtime"
 fi
 
 cua-driver telemetry disable >/dev/null 2>&1 || true

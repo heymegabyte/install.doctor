@@ -41,3 +41,29 @@ if [[ "$(uname -s)" == Linux ]]; then
   [[ "$(grep -cFx 'systemctl --user enable --now agent-fleet-cua.service' "$CUA_TEST_LOG")" -eq 2 ]]
   ! grep -F 'cua-driver skills' "$CUA_TEST_LOG"
 fi
+
+# Compare a corrupt download before extraction or command publication.
+if (( EUID != 0 )) && [[ "$(uname -s):$(uname -m)" =~ ^(Darwin:(arm64|x86_64)|Linux:(x86_64|aarch64|arm64))$ ]]; then
+  mkdir -p "$fixture/reject-bin"
+  cat > "$fixture/reject-bin/curl" <<'STUB'
+#!/usr/bin/env bash
+while (( $# )); do
+  if [[ "$1" == --output ]]; then
+    printf '%s\n' 'incorrect fixture bytes' > "$2"
+    exit 0
+  fi
+  shift
+done
+exit 1
+STUB
+  chmod +x "$fixture/reject-bin/curl"
+  if HOME="$fixture/rejected" XDG_DATA_HOME="$fixture/rejected/share" \
+    PATH="$fixture/reject-bin:$PATH" \
+    bash "$root/home/dot_local/bin/executable_install-cua-driver-runtime" >"$fixture/rejection" 2>&1; then
+    echo 'The Cua Driver installer accepted an incorrect digest.' >&2
+    exit 1
+  fi
+  grep -Fx 'Pinned Cua Driver archive digest mismatch.' "$fixture/rejection"
+  [[ ! -e "$fixture/rejected/.local/bin/cua-driver" ]]
+  [[ -z "$(find "$fixture/rejected/share" -name '.stage.*' -print)" ]]
+fi

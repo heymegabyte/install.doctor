@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+version=0.44.0
+case "$(uname -s):$(uname -m)" in
+  Darwin:arm64|Darwin:x86_64)
+    platform=darwin-universal
+    digest=7699d7ebd3d3319cbd066af9fc679dc7439adad6c5c84cc46956aa9880106e37
+    ;;
+  Linux:x86_64)
+    platform=linux-x86_64
+    digest=e6e6a597e86368b72a4db561e4d998681cdfc7cf917e758ba7b7c7cf1605d17f
+    ;;
+  Linux:aarch64|Linux:arm64)
+    platform=linux-arm64
+    digest=1beae3d0e99bcf8fb31aaab3e3b0360172e385deea1f7fc152834e71629d9295
+    ;;
+  *)
+    printf 'No pinned Cua Driver artifact for this platform.\n' >&2
+    exit 78
+    ;;
+esac
+
+if (( EUID == 0 )); then
+  printf 'Install Cua Driver as the managed desktop user.\n' >&2
+  exit 78
+fi
+
+store="${XDG_DATA_HOME:-$HOME/.local/share}/install-doctor/cua-driver"
+link="$HOME/.local/bin/cua-driver"
+mkdir -p -- "$store" "$(dirname "$link")"
+if [[ -e "$link" || -L "$link" ]]; then
+  test -x "$link"
+  exit
+fi
+
+umask 077
+scratch=$(mktemp -d "$store/.stage.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+name="cua-driver-rs-$version-$platform"
+curl --disable --fail --silent --show-error --location --max-time 180 \
+  --proto '=https' --proto-redir '=https' \
+  --output "$scratch/runtime.tar.gz" \
+  "https://github.com/trycua/cua/releases/download/cua-driver-rs-v$version/$name.tar.gz"
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum=$(sha256sum "$scratch/runtime.tar.gz")
+else
+  checksum=$(shasum -a 256 "$scratch/runtime.tar.gz")
+fi
+if [[ "${checksum%% *}" != "$digest" ]]; then
+  printf 'Pinned Cua Driver archive digest mismatch.\n' >&2
+  exit 1
+fi
+tar -xzf "$scratch/runtime.tar.gz" -C "$scratch"
+release="$scratch/$name"
+
+if [[ "$platform" == darwin-universal ]]; then
+  app=CuaDriver.app
+  appPath="/Applications/$app"
+  bundle="$release/$app"
+  if [[ -e "$appPath" || -L "$appPath" ]]; then bundle="$appPath"; fi
+  /usr/bin/codesign --verify --deep --strict \
+    -R='anchor apple generic and identifier "com.trycua.driver" and certificate leaf[subject.OU] = "YCK386LBJ7"' "$bundle"
+  test ! -L "$bundle"
+  test "$("$bundle/Contents/MacOS/cua-driver" --version)" = "cua-driver $version"
+  if [[ "$bundle" != "$appPath" ]]; then
+    mv -n -- "$bundle" /Applications/
+    # An existing app created concurrently belongs to its installer.
+    test ! -e "$bundle"
+  fi
+  binary="$appPath/Contents/MacOS/cua-driver"
+else
+  destination="$store/$name"
+  test "$("$release/cua-driver" --version)" = "cua-driver $version"
+  if [[ ! -e "$destination" && ! -L "$destination" ]]; then
+    mv -nT -- "$release" "$destination"
+  fi
+  if [[ -d "$release" ]]; then
+    test ! -L "$destination"
+    diff -qr -- "$release" "$destination" >/dev/null
+  fi
+  binary="$destination/cua-driver"
+fi
+
+test -x "$binary"
+ln -s -- "$binary" "$link"
+printf 'Installed Cua Driver %s for %s.\n' "$version" "$platform"
