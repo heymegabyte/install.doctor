@@ -2663,19 +2663,26 @@ EOF
   fi
 
   # Configure Proxmox-style sanoid policy for bpool, root, and /home datasets
-  run_root mkdir -p /etc/sanoid
   ROOT_DS="$(zfs list -H -o name / 2>/dev/null | tr -d ' ' || echo rpool/ROOT/ubuntu)"
   HOME_DS="$(zfs list -H -o name /home 2>/dev/null | tr -d ' ' || echo rpool/USERDATA)"
   run_root zfs set copies=2 "$HOME_DS" >/dev/null 2>&1 || true
 
-  BPOOL_CONF=""
-  if zfs list bpool/BOOT >/dev/null 2>&1; then
-    BPOOL_CONF=$'[bpool/BOOT]\n  use_template = boot\n  recursive = yes\n\n'
-  fi
   for child_ds in $(zfs list -H -o name -r rpool bpool 2>/dev/null || true); do
     run_root zfs set atime=off "$child_ds" >/dev/null 2>&1 || true
     run_root zfs set xattr=sa "$child_ds" >/dev/null 2>&1 || true
   done
+
+  if run_root test -e /etc/sanoid/sanoid.conf || run_root test -L /etc/sanoid/sanoid.conf; then
+    log 'Preserving the existing Sanoid policy and scheduler.'
+  elif ! SNAPSHOT_TIMERS="$(systemctl list-timers --all --no-legend --no-pager 2>/dev/null)"; then
+    warn 'Unable to inspect snapshot timers. Skipping Sanoid configuration.'
+  elif printf '%s\n' "$SNAPSHOT_TIMERS" | grep -Eq '(^|[[:space:]])[^[:space:]]*(autosnap|zfs-auto-snapshot)[^[:space:]]*\.timer([[:space:]]|$)'; then
+    warn 'Existing snapshot timer detected. Skipping Sanoid configuration.'
+  else
+  BPOOL_CONF=""
+  if zfs list bpool/BOOT >/dev/null 2>&1; then
+    BPOOL_CONF=$'[bpool/BOOT]\n  use_template = boot\n  recursive = yes\n\n'
+  fi
   cat > "$TMP_DIR/sanoid.conf" <<EOF
 ${BPOOL_CONF}[${ROOT_DS}]
   use_template = proxmox_fleet
@@ -2705,8 +2712,13 @@ ${BPOOL_CONF}[${ROOT_DS}]
   autosnap = yes
   autoclean = yes
 EOF
-  run_root cp "$TMP_DIR/sanoid.conf" /etc/sanoid/sanoid.conf
-
+  if (
+    run_root install -d -m 0755 /etc/sanoid &&
+    stage=$(run_root mktemp /etc/sanoid/.install-doctor.XXXXXXXX) || exit 1
+    trap 'run_root rm -f -- "$stage"' EXIT
+    run_root install -m 0644 "$TMP_DIR/sanoid.conf" "$stage" &&
+      run_root ln -T "$stage" /etc/sanoid/sanoid.conf
+  ); then
   cat > "$TMP_DIR/fleet-zfs-autosnap-guard" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -2728,7 +2740,11 @@ ExecStartPre=/usr/local/bin/fleet-zfs-autosnap-guard
 EOF
   run_root cp "$TMP_DIR/capacity-guard.conf" /etc/systemd/system/sanoid.service.d/capacity-guard.conf
   run_root systemctl daemon-reload
-  run_root systemctl enable --now sanoid.timer >/dev/null 2>&1 || true
+    run_root systemctl enable --now sanoid.timer >/dev/null 2>&1 || warn 'Sanoid timer activation failed.'
+  else
+    warn 'Sanoid policy was not installed. Skipping timer activation.'
+  fi
+  fi
 
   # Monthly zpool scrub timers
   for pool in rpool bpool; do
