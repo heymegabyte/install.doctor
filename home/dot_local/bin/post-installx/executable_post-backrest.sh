@@ -2,7 +2,7 @@
 # @file executable_post-backrest.sh
 # @description Capability-aware Backrest + Restic backup provisioning for Install Doctor (§11).
 # Installs restic and Backrest (127.0.0.1:9898 loopback-only), configures Cloudflare R2 encrypted
-# repository, and installs scheduled backup/check/prune units.
+# repository, and installs scheduled backup and integrity-check units.
 set -euo pipefail
 
 log_info() { printf '\033[0;34mINFO\033[0m %s\n' "$*"; }
@@ -168,7 +168,10 @@ fi
 export RESTIC_REPOSITORY="\${RESTIC_REPOSITORY_HOST:-\${RESTIC_REPOSITORY}/\${HOST_SHORT}-host}"
 export XDG_CACHE_HOME="/var/cache/megabyte/backrest"
 
-restic snapshots >/dev/null 2>&1 || restic init
+if ! restic snapshots >/dev/null 2>&1; then
+  echo "ERROR: configured Restic repository is unreadable; verify enrollment and credentials" >&2
+  exit 1
+fi
 
 BACKUP_PATHS=()
 for base_path in /etc/ufw /etc/fail2ban /etc/netdata /etc/sanoid /etc/backrest/excludes.txt /etc/smartd.conf; do
@@ -186,14 +189,14 @@ restic backup \\
   --tag automated \\
   "\${BACKUP_PATHS[@]}"
 
-restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+restic forget --dry-run --keep-daily 7 --keep-weekly 4 --keep-monthly 6
 restic check --read-data-subset=5%
 EOF
   $SUDO chmod 0750 /usr/local/sbin/restic-host-backup
 
   $SUDO tee /etc/systemd/system/restic-host-backup.service >/dev/null <<'EOF'
 [Unit]
-Description=Workstation Restic Snapshot + Prune + Integrity Check to Cloudflare R2
+Description=Workstation Restic Snapshot + Retention Preview + Integrity Check to Cloudflare R2
 After=network-online.target
 Wants=network-online.target
 

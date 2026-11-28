@@ -132,3 +132,17 @@ Secret-policy and identity changes SHALL deploy to fixtures, then one canary per
 
 - **WHEN** a runtime-class canary fails reload or authorization verification
 - **THEN** its configuration automatically rolls back, the remaining class batch is not admitted, and the previous credential remains recoverable
+
+### Requirement: Routine Restic capture preserves repository history
+
+The generated Install Doctor Restic writer SHALL require a readable initialized repository and compute its retention preview without deleting snapshots or packs.
+
+#### Scenario: The repository is unreadable
+
+- **WHEN** the configured repository is absent, unreachable, or rejects the credentials
+- **THEN** the writer exits before backup and makes no repository initialization or retention mutation
+
+#### Scenario: A scheduled backup succeeds
+
+- **WHEN** the writer completes a backup in the enrolled repository
+- **THEN** it previews retention and runs the integrity check without invoking prune

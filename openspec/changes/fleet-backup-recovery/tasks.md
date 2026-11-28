@@ -3,6 +3,7 @@
 - [x] Record proposal, design, safety boundaries, and acceptance semantics.
 - [x] Add strict fleet-protection policy, plan, and observed-evidence contracts with focused tests.
 - [x] Add portable read-only host/ZFS assessment and redaction tests.
+- [x] Require the generated Restic writer to read an initialized repository and preview retention without deleting history.
 - [ ] Add atomic configuration renderers and one-scheduler detection for Sanoid, scrub, Syncoid, Restic/PBS, and Alloy.
 - [ ] Make Infisical authoritative behind `get-secret`; bind project/environment/path/action scope in desired state and prove permitted reads plus denied cross-host, cross-environment, administrative, recovery-root, and caller-supplied-scope access without exposing values. (Fail-closed resolver implemented; live allow/deny matrix pending.)
 - [ ] Inventory every pre-network/offline secret dependency; eliminate routine age/SOPS storage; implement only approved machine-scoped local bootstrap exceptions with protected permissions, explicit expiry/revocation behavior, and tests proving they cannot become a general fallback.
