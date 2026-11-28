@@ -4,9 +4,8 @@
 # @description
 #   When explicitly selected, installs the official Cua Driver (`cua-driver` + `cua` CLI) on a
 #   supported interactive desktop.
-#   Configures GNOME Wayland support (`winrects@cua`), disables telemetry, registers the MCP
-#   server in Claude Code, Codex, OpenCode, and Antigravity harnesses, and sets up native user
-#   autostart (systemd user unit on Linux, LaunchAgent on macOS).
+#   Configures GNOME Wayland support (`winrects@cua`), disables telemetry, and sets up native
+#   user autostart. Agent registration is owned by the operator's harness configuration.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -96,126 +95,6 @@ try {
 ' "$WINRECTS_META" >/dev/null 2>&1 && log "Ensured GNOME Shell 50/51 compatibility for winrects@cua" || true
   fi
 fi
-
-cua-driver skills install >/dev/null 2>&1 || true
-
-# Register Cua Driver MCP in installed agent harnesses (Claude Code, Codex, OpenCode, Antigravity)
-node - << 'NODE' || warn "Cua Driver MCP registration skipped"
-const fs = require("node:fs");
-const path = require("node:path");
-const os = require("node:os");
-
-const home = os.homedir();
-const cuaBin = path.join(home, ".local", "bin", "cua-driver");
-
-// 1. OpenCode (~/.config/opencode/opencode.json and opencode.jsonc)
-const ocDir = path.join(home, ".config", "opencode");
-fs.mkdirSync(ocDir, { recursive: true });
-for (const name of ["opencode.json", "opencode.jsonc"]) {
-  const p = path.join(ocDir, name);
-  let data;
-  if (fs.existsSync(p)) {
-    try {
-      const raw = fs
-        .readFileSync(p, "utf8")
-        .split(/\r?\n/)
-        .filter((l) => !l.trim().startsWith("//"))
-        .join("\n");
-      data = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-  } else if (name === "opencode.jsonc") {
-    continue;
-  } else {
-    data = {};
-  }
-  if (!data.mcp || typeof data.mcp !== "object") data.mcp = {};
-  data.mcp["cua-driver"] = { type: "local", command: [cuaBin, "mcp"], enabled: true };
-  fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
-}
-
-// 2. Claude Code (~/.claude.json + isolated profiles if present)
-const claudeTargets = [path.join(home, ".claude.json")];
-const crAccounts = path.join(home, ".claw-router", "accounts");
-try {
-  for (const acct of fs.readdirSync(crAccounts).sort()) {
-    if (acct.startsWith("claude-")) claudeTargets.push(path.join(crAccounts, acct, ".claude.json"));
-  }
-} catch {
-  // No claw-router accounts dir.
-}
-for (const p of claudeTargets) {
-  let data = {};
-  if (fs.existsSync(p)) {
-    try {
-      data = JSON.parse(fs.readFileSync(p, "utf8"));
-    } catch {
-      data = {};
-    }
-  }
-  if (!data.mcpServers || typeof data.mcpServers !== "object") data.mcpServers = {};
-  data.mcpServers["cua-driver"] = { type: "stdio", command: cuaBin, args: ["mcp"], env: {} };
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
-  fs.chmodSync(p, 0o600);
-}
-
-// 3. Codex (~/.codex/config.toml)
-const codexDir = path.join(home, ".codex");
-fs.mkdirSync(codexDir, { recursive: true });
-const cfg = path.join(codexDir, "config.toml");
-let txt = "";
-try {
-  txt = fs.readFileSync(cfg, "utf8");
-} catch {
-  txt = "";
-}
-if (!txt.includes("[mcp_servers.cua-driver]") && !txt.includes("[mcp_servers.cua_driver]")) {
-  const block = `\n[mcp_servers.cua-driver]\ncommand = "${cuaBin}"\nargs = ["mcp"]\nenabled = true\n`;
-  fs.writeFileSync(cfg, txt.replace(/\s+$/, "") + "\n" + block);
-}
-
-// 4. Antigravity CLI (~/.gemini/config/mcp_config.json and legacy ~/.gemini/antigravity/mcp_config.json)
-for (const agyDir of [path.join(home, ".gemini", "config"), path.join(home, ".gemini", "antigravity")]) {
-  fs.mkdirSync(agyDir, { recursive: true });
-  const p = path.join(agyDir, "mcp_config.json");
-  let data = {};
-  if (fs.existsSync(p)) {
-    try {
-      data = JSON.parse(fs.readFileSync(p, "utf8"));
-    } catch {
-      data = {};
-    }
-  }
-  if (!data.mcpServers || typeof data.mcpServers !== "object") data.mcpServers = {};
-  data.mcpServers["cua-driver"] = { command: cuaBin, args: ["mcp"] };
-  fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
-}
-
-// 5. Symlink skill into ~/.codex/skills and ~/.openclaw/skills if source exists
-const skillSrc = path.join(home, ".agents", "skills", "cua-driver");
-if (fs.existsSync(skillSrc)) {
-  for (const root of [path.join(home, ".codex", "skills"), path.join(home, ".openclaw", "skills")]) {
-    fs.mkdirSync(root, { recursive: true });
-    const link = path.join(root, "cua-driver");
-    let linkExists = false;
-    try {
-      fs.lstatSync(link);
-      linkExists = true;
-    } catch {
-      linkExists = false;
-    }
-    if (!linkExists) {
-      try {
-        fs.symlinkSync(skillSrc, link);
-      } catch {
-        // Ignore symlink race/permission error.
-      }
-    }
-  }
-}
-NODE
 
 # Configure native user autostart (avoiding duplicate daemons)
 if [ "$OS" = "macos" ]; then
