@@ -9,7 +9,7 @@
  */
 
 import { timingSafeEqual } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
 import {
   createServer,
   request as httpRequest,
@@ -42,12 +42,31 @@ const CONFIG: OllamaGatewayProxyConfig = {
   upstreamTimeoutMs: Number.parseInt(process.env.OLLAMA_PROXY_TIMEOUT_MS ?? "300000", 10) || 300_000,
 };
 
+const maxTokenFileBytes = 4096;
+
 function loadExpectedToken(): Buffer | null {
+  let fd: number | undefined;
   try {
-    const token = Buffer.from(readFileSync(CONFIG.tokenFilePath, "utf8").trim(), "utf8");
-    return token.length > 0 ? token : null;
+    fd = openSync(CONFIG.tokenFilePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 ||
+        stat.size < 1 || stat.size > maxTokenFileBytes) {
+      return null;
+    }
+    const bytes = Buffer.alloc(maxTokenFileBytes + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = readSync(fd, bytes, length, bytes.length - length, null);
+      if (read === 0) break;
+      length += read;
+    }
+    if (length > maxTokenFileBytes) return null;
+    const token = bytes.subarray(0, length).toString("utf8").trim();
+    return token ? Buffer.from(token, "utf8") : null;
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 

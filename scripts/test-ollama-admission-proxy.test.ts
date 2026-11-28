@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, renameSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -136,6 +136,16 @@ test("streams hold admission slots until the upstream closes", { timeout: 10000 
   renameSync(replacement, tokenPath);
   assert.equal(await checkCredential("fixture-token"), 401);
   assert.equal(await checkCredential("rotated-token"), 404);
+  chmodSync(tokenPath, 0o644);
+  assert.equal(await checkCredential("rotated-token"), 401);
+  chmodSync(tokenPath, 0o600);
+  const secretTarget = join(directory, "symlink-target");
+  renameSync(tokenPath, secretTarget);
+  symlinkSync(secretTarget, tokenPath);
+  assert.equal(await checkCredential("rotated-token"), 401);
+  unlinkSync(tokenPath);
+  writeFileSync(tokenPath, "x".repeat(4097), { mode: 0o600 });
+  assert.equal(await checkCredential("x".repeat(4097)), 401);
   rmSync(tokenPath);
   assert.equal(await checkCredential("rotated-token"), 401);
   writeFileSync(tokenPath, "fixture-token", { mode: 0o600 });

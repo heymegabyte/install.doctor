@@ -55,3 +55,16 @@ removed. A fresh embedding through the authenticated Tunnel returned
 768 dimensions at 2,048 context tokens. These are checks from the
 managed Mac's enrolled network. Coolify's gateway transport and
 distributed exclusion still require their own tests.
+
+The shared proxy now reads credentials from a bounded, owner-only
+regular file and refuses symlinks. The streaming regression fixture
+also verified rejection of group/world-readable, symlinked, oversized
+and absent credentials, plus immediate recognition of an atomically
+rotated private token. The existing managed Mac credential conformed
+to the policy. Its installed proxy was updated while idle, launched
+through its current LaunchAgent, and passed authenticated readiness.
+Installed SHA-256:
+`3921750c3cd10656015b142d7878b8c39653affe9f60459b4727275a1de13a97`.
+The previous script remains with suffix
+`.pre-token-permissions-20261128`. This revision has not yet been
+adopted on Omen or Legion.
