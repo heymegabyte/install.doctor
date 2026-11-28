@@ -116,3 +116,18 @@ credential recovery require their own checks.
 
 - [ ] Enroll and verify the identity guard on a production canary and
   evaluate scheduled rollout on the remaining managed writers.
+
+The Ubuntu production canary resolved the repository configuration only
+after independently finding its previously restored full snapshot ID.
+It pinned the full repository ID (prefix `2bc87603c012`) in the
+root-managed systemd drop-in `65-repository-identity.conf`. Its
+deployed writer requires the binding and had SHA-256
+`57a71b9e5ffc12fa61882f21bd50825c4c7a7cd438f5b2e60299e585b8b82735`.
+A wrong-ID run failed and the complete snapshot inventory was unchanged.
+The existing systemd service then exited 0 with the enrolled binding,
+saved `b75c216e`, and reported no integrity errors. The timer remained
+active. Automatic execution and wider rollout are pending.
+
+For rollback, while the service is idle, restore the writer with suffix
+`.pre-repository-identity-20261128`, remove only the repository identity
+drop-in, and reload systemd. The retained writer still previews retention.
