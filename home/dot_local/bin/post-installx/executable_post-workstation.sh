@@ -2181,6 +2181,37 @@ function collectZfsMetrics(lines: string[]): void {
       }
     }
   }
+  const statusText = runCommandText("zpool", ["status", "-j", "--json-int"], 2_500);
+  if (!statusText) return;
+  let status: unknown;
+  try {
+    status = JSON.parse(statusText);
+  } catch {
+    return;
+  }
+  if (!status || typeof status !== "object" || !("pools" in status) ||
+      !status.pools || typeof status.pools !== "object" || Array.isArray(status.pools)) return;
+  lines.push(
+    "# HELP zpool_completed_scrub_timestamp_seconds End time of the latest completed scrub reported by OpenZFS.",
+    "# TYPE zpool_completed_scrub_timestamp_seconds gauge",
+    "# HELP zpool_completed_scrub_errors Errors reported by that completed scrub.",
+    "# TYPE zpool_completed_scrub_errors gauge",
+  );
+  for (const [name, pool] of Object.entries(status.pools)) {
+    if (!pool || typeof pool !== "object" || !("scan_stats" in pool)) continue;
+    const scan: unknown = pool.scan_stats;
+    if (!scan || typeof scan !== "object" || !("function" in scan) || scan.function !== "SCRUB" ||
+        !("state" in scan) || scan.state !== "FINISHED" ||
+        !("end_time" in scan) || typeof scan.end_time !== "number" ||
+        !Number.isSafeInteger(scan.end_time) || scan.end_time <= 0 ||
+        !("errors" in scan) || typeof scan.errors !== "number" ||
+        !Number.isSafeInteger(scan.errors) || scan.errors < 0) continue;
+    const poolName = sanitizeLabelValue(name);
+    lines.push(
+      `zpool_completed_scrub_timestamp_seconds{pool="${poolName}"} ${scan.end_time}`,
+      `zpool_completed_scrub_errors{pool="${poolName}"} ${scan.errors}`,
+    );
+  }
 }
 
 function collectPsiAndKernelMetrics(lines: string[]): void {
