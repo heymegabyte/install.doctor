@@ -89,6 +89,30 @@ STUB
   ! grep -Eq '^Environment=(WAYLAND_DISPLAY|DISPLAY)=' "$unit"
   ! grep -F 'systemctl --user start ' "$CUA_TEST_LOG"
   ! grep -F 'cua-driver skills' "$CUA_TEST_LOG"
+
+  # Check the version declaration before calling the bundled helper.
+  helper="$HOME/.local/bin/wayland-helper"
+  mkdir -p "$helper/winrects@cua"
+  printf '{"shell-version":["49"]}\n' > "$helper/winrects@cua/metadata.json"
+  printf 'touch "$HOME/helper-called"\n' > "$helper/install.sh"
+  cat > "$HOME/.local/bin/gnome-shell" <<'STUB'
+#!/usr/bin/env bash
+printf 'GNOME Shell %s.1\n' "$FIXTURE_GNOME_MAJOR"
+STUB
+  chmod +x "$HOME/.local/bin/gnome-shell"
+  FIXTURE_GNOME_MAJOR=50 INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook"
+  [[ ! -e "$HOME/helper-called" ]]
+  FIXTURE_GNOME_MAJOR=49 INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook"
+  [[ -f "$HOME/helper-called" ]]
+  rm "$HOME/helper-called"
+
+  extension="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/winrects@cua"
+  mkdir -p "$extension"
+  printf '{"shell-version":["49","50"]}\n' > "$extension/metadata.json"
+  metadata_before="$(cksum "$extension/metadata.json")"
+  FIXTURE_GNOME_MAJOR=49 INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook"
+  [[ ! -e "$HOME/helper-called" ]]
+  [[ "$(cksum "$extension/metadata.json")" == "$metadata_before" ]]
   printf '# local customization\n' >> "$unit"
   unit_before="$(cksum "$unit")"
   if "$HOME/.local/bin/configure-cua-linux-autostart"; then
