@@ -96,3 +96,13 @@ For rollback diagnosis, the previous revision is retained alongside
 the writer with suffix `.pre-retention-guard-20261128`. It can prune
 repository history. Keep the timer disabled if that revision must
 be restored while diagnosing a regression.
+
+The Ubuntu controller then resolved the exact canary snapshot
+`ed74c4ea8f409efd095466a57ba980b820540905589b1d5256e1f91c12016fbf`
+through its enrolled Restic repository. A read-only, deadline-bounded
+dump into root-private runtime storage restored all 1,397 bytes of
+`/etc/ufw/after.rules`. The restored file matched the live file byte
+for byte. The sample and temporary directory were removed before the
+SSH command returned success. This verifies configuration readability
+for the manual canary generation. The timer invocation and independent
+credential recovery require their own checks.
