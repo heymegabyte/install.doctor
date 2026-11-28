@@ -1,0 +1,202 @@
+{{- $secretsDir := joinPath .chezmoi.sourceDir ".chezmoitemplates" "secrets" -}}
+{{- $hostSecretsDir := joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "secrets-%s" .chezmoi.hostname) -}}
+{{- $sharedToken := stat (joinPath $secretsDir "ELASTIC_TOKEN") -}}
+{{- $hostToken := stat (joinPath $hostSecretsDir "ELASTIC_TOKEN") -}}
+{{- $ageKey := stat (joinPath .chezmoi.homeDir ".config" "age" "chezmoi.txt") -}}
+{{- $canDecrypt := (and $ageKey (or $sharedToken $hostToken)) -}}
+{{- $envToken := (env "ELASTIC_TOKEN") -}}
+{{- $envLogstash := (env "LOGSTASH_SYSLOG_SERVER") -}}
+{{- if and (ne .host.distro.family "windows") (or $canDecrypt $envToken) -}}
+#!/usr/bin/env bash
+# @file run_after_26-elastic-agent.sh.tmpl
+# @brief Enroll the Elastic Agent into the Elastic Fleet Server so host logs reach the ELK stack
+# @description
+#     Installing `elastic-agent` is not enough: the agent only starts shipping logs after it enrolls
+#     with a Fleet Server using a policy enrollment token. This step joins the host to the cluster.
+#
+#     The step is additive, idempotent, and best-effort:
+#
+#       1. Skips unless `elastic-agent` is actually installed (package installation is owned by the
+#          software selection, not by this script).
+#       2. Skips unless the enrollment token is available from an encrypted secret
+#          (`home/.chezmoitemplates/secrets/ELASTIC_TOKEN` or `secrets-<hostname>/ELASTIC_TOKEN`) or the
+#          `ELASTIC_TOKEN` environment variable.
+#       3. Skips when the agent is already enrolled against this Fleet Server with this token. The
+#          enrollment fingerprint is recorded in `~/.local/state/install-doctor/elastic-agent.enrollment`;
+#          it is a SHA-256 digest, never the token itself.
+#       4. Re-enrolls with `--force` when the token, Fleet URL, or CA fingerprint changes, or when
+#          `ELASTIC_AGENT_REENROLL=1` is set. An agent enrolled some other way is adopted as-is (record
+#          the fingerprint, do not reinstall) unless `ELASTIC_AGENT_REENROLL=1` is set.
+#
+#     Fleet policies own which integrations ship what; the stock "System" integration covers
+#     journald/syslog for most hosts. Hosts that must forward legacy RFC 3164/5424 syslog to a Logstash
+#     `syslog` input instead can set `LOGSTASH_SYSLOG_SERVER` (for example `logstash.example.com:5514`):
+#     this script then installs a managed `60-elastic-syslog.conf` rsyslog drop-in that forwards `*.*`
+#     over TCP, validates the configuration with `rsyslogd -N1` BEFORE touching the running daemon, and
+#     removes the drop-in again (restoring the prior state) when the variable is unset.
+#
+#     Opt out entirely with `INSTALL_DOCTOR_ELASTIC_AGENT=0`. Enrollment or forwarding failures are
+#     logged and never abort `chezmoi apply` — a log pipeline outage must not break provisioning. The
+#     enrollment token is passed on the command line only and is never logged.
+set -Eeo pipefail
+
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL:-0}" = 1 ]; then
+  # Service enrollment belongs to the approved installer plan, never to an ambient
+  # Chezmoi environment.
+  exit 0
+fi
+
+log() { if command -v gum > /dev/null 2>&1; then gum log -sl info "$1"; else printf '[INFO] %s\n' "$1"; fi; }
+warn() { if command -v gum > /dev/null 2>&1; then gum log -sl warn "$1"; else printf '[WARN] %s\n' "$1" >&2; fi; }
+
+### Explicit selection — enrollment is opt-out, not opt-in, because a provisioned agent without a
+### policy is a silent monitoring gap.
+if [ "${INSTALL_DOCTOR_ELASTIC_AGENT:-1}" = 0 ]; then
+  log 'Elastic Agent enrollment disabled (INSTALL_DOCTOR_ELASTIC_AGENT=0) — skipping'
+  exit 0
+fi
+
+### Locate the binary. The installer does not always leave it on PATH (macOS installs to
+### /Library/Elastic/Agent, some Linux packages to /opt/Elastic/Agent).
+ELASTIC_AGENT_BIN=""
+if command -v elastic-agent > /dev/null 2>&1; then
+  ELASTIC_AGENT_BIN="$(command -v elastic-agent)"
+else
+  for CANDIDATE in /Library/Elastic/Agent/elastic-agent /opt/Elastic/Agent/elastic-agent /usr/share/elastic-agent/elastic-agent; do
+    if [ -x "$CANDIDATE" ]; then
+      ELASTIC_AGENT_BIN="$CANDIDATE"
+      break
+    fi
+  done
+fi
+if [ -z "$ELASTIC_AGENT_BIN" ]; then
+  log '`elastic-agent` is not installed or not on PATH — skipping Fleet enrollment'
+  exit 0
+fi
+
+### Enrollment inputs (rendered at `chezmoi apply`; never echoed).
+DISTRO_FAMILY='{{ .host.distro.family }}'
+ELASTIC_TOKEN='{{- if $canDecrypt -}}{{- if $hostToken -}}{{ includeTemplate (printf "secrets-%s/ELASTIC_TOKEN" .chezmoi.hostname) | decrypt | trim }}{{- else -}}{{ includeTemplate "secrets/ELASTIC_TOKEN" | decrypt | trim }}{{- end -}}{{- else -}}{{ $envToken }}{{- end -}}'
+ELASTIC_FLEET_SERVER='{{ .host.elastic_fleet_server }}'
+ELASTIC_FLEET_CA_FINGERPRINT="${ELASTIC_FLEET_CA_FINGERPRINT:-}"
+LOGSTASH_SYSLOG_SERVER='{{ $envLogstash }}'
+
+if [ -z "$ELASTIC_TOKEN" ]; then
+  log 'ELASTIC_TOKEN is not defined as an encrypted secret or environment variable — skipping Fleet enrollment'
+  exit 0
+fi
+if [ -z "$ELASTIC_FLEET_SERVER" ]; then
+  log '`host.elastic_fleet_server` is empty — skipping Fleet enrollment'
+  exit 0
+fi
+
+### Privilege check — enrollment always installs a system service.
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo > /dev/null 2>&1 && sudo -n true 2> /dev/null; then
+    SUDO="sudo"
+  else
+    warn 'passwordless sudo is unavailable — skipping Elastic Agent enrollment'
+    exit 0
+  fi
+fi
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/install-doctor"
+FINGERPRINT_FILE="$STATE_DIR/elastic-agent.enrollment"
+if command -v sha256sum > /dev/null 2>&1; then
+  FINGERPRINT="$(printf '%s\n%s\n%s\n' "$ELASTIC_FLEET_SERVER" "$ELASTIC_FLEET_CA_FINGERPRINT" "$ELASTIC_TOKEN" | sha256sum | awk '{print $1}')"
+else
+  FINGERPRINT="$(printf '%s\n%s\n%s\n' "$ELASTIC_FLEET_SERVER" "$ELASTIC_FLEET_CA_FINGERPRINT" "$ELASTIC_TOKEN" | shasum -a 256 | awk '{print $1}')"
+fi
+
+agentIsHealthy() {
+  $SUDO "$ELASTIC_AGENT_BIN" status > /dev/null 2>&1
+}
+
+recordFingerprint() {
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$FINGERPRINT" > "$FINGERPRINT_FILE"
+}
+
+enrollAgent() {
+  local ENROLL_ARGS=(install --non-interactive --url="$ELASTIC_FLEET_SERVER" --enrollment-token="$ELASTIC_TOKEN")
+  if [ -n "$ELASTIC_FLEET_CA_FINGERPRINT" ]; then
+    ENROLL_ARGS+=(--ca-fingerprint="$ELASTIC_FLEET_CA_FINGERPRINT")
+  fi
+  if [ "$1" = "force" ]; then
+    ENROLL_ARGS+=(--force)
+  fi
+  log "Enrolling Elastic Agent with Fleet Server $ELASTIC_FLEET_SERVER"
+  if $SUDO "$ELASTIC_AGENT_BIN" "${ENROLL_ARGS[@]}" > /dev/null 2>&1; then
+    recordFingerprint
+    log 'Elastic Agent enrolled — the Fleet policy now ships this host logs to the ELK stack'
+  else
+    warn 'Elastic Agent enrollment failed (Fleet Server unreachable or token rejected) — will retry on the next `chezmoi apply`'
+  fi
+}
+
+### Idempotent enrollment.
+if agentIsHealthy; then
+  if [ -f "$FINGERPRINT_FILE" ] && [ "$(cat "$FINGERPRINT_FILE")" = "$FINGERPRINT" ] && [ "${ELASTIC_AGENT_REENROLL:-0}" != 1 ]; then
+    log 'Elastic Agent is already enrolled with this Fleet Server and token — nothing to do'
+  elif [ "${ELASTIC_AGENT_REENROLL:-0}" = 1 ]; then
+    log 'ELASTIC_AGENT_REENROLL=1 — forcing re-enrollment'
+    enrollAgent force
+  elif [ -f "$FINGERPRINT_FILE" ]; then
+    log 'Enrollment inputs changed — re-enrolling the Elastic Agent'
+    enrollAgent force
+  else
+    # Enrolled some other way (manually, or before this script existed): adopt it rather than
+    # reinstalling a working agent.
+    recordFingerprint
+    log 'Elastic Agent is already enrolled — recorded the enrollment fingerprint (set ELASTIC_AGENT_REENROLL=1 to force re-enrollment)'
+  fi
+else
+  enrollAgent install
+fi
+
+### Optional syslog -> Logstash forwarding (Linux/rsyslog only; macOS ships ASL/unified logging).
+SYSLOG_CONF="/etc/rsyslog.d/60-elastic-syslog.conf"
+SYSLOG_MARKER='# Managed by install.doctor (run_after_26-elastic-agent) — do not edit; unset LOGSTASH_SYSLOG_SERVER to remove'
+rsyslogAvailable() {
+  [ "$DISTRO_FAMILY" = "linux" ] && command -v rsyslogd > /dev/null 2>&1 && [ -d /etc/rsyslog.d ]
+}
+restartRsyslog() {
+  if command -v systemctl > /dev/null 2>&1; then
+    $SUDO systemctl restart rsyslog > /dev/null 2>&1 || warn 'could not restart rsyslog (systemctl)'
+  elif command -v service > /dev/null 2>&1; then
+    $SUDO service rsyslog restart > /dev/null 2>&1 || warn 'could not restart rsyslog (service)'
+  fi
+}
+
+if [ -n "$LOGSTASH_SYSLOG_SERVER" ]; then
+  if rsyslogAvailable; then
+    if printf '%s' "$LOGSTASH_SYSLOG_SERVER" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$'; then
+      EXPECTED="$(mktemp)"
+      printf '%s\n*.* @@%s\n' "$SYSLOG_MARKER" "$LOGSTASH_SYSLOG_SERVER" > "$EXPECTED"
+      if [ -f "$SYSLOG_CONF" ] && cmp -s "$EXPECTED" "$SYSLOG_CONF"; then
+        log 'rsyslog already forwards to the configured Logstash syslog input — nothing to do'
+      elif $SUDO install -m 0644 "$EXPECTED" "$SYSLOG_CONF"; then
+        if $SUDO rsyslogd -N1 > /dev/null 2>&1; then
+          restartRsyslog
+          log "rsyslog now forwards *.* over TCP to $LOGSTASH_SYSLOG_SERVER"
+        else
+          $SUDO rm -f "$SYSLOG_CONF"
+          warn 'generated rsyslog configuration failed validation and was removed — syslog forwarding left unchanged'
+        fi
+      else
+        warn "could not write $SYSLOG_CONF — syslog forwarding left unchanged"
+      fi
+      command rm -f "$EXPECTED"
+    else
+      warn "LOGSTASH_SYSLOG_SERVER is not a plain host:port value — refusing to write an rsyslog drop-in"
+    fi
+  else
+    log 'LOGSTASH_SYSLOG_SERVER is set but rsyslog is unavailable — relying on the Fleet policy integrations instead'
+  fi
+elif [ -f "$SYSLOG_CONF" ] && grep -Fq "$SYSLOG_MARKER" "$SYSLOG_CONF"; then
+  $SUDO rm -f "$SYSLOG_CONF"
+  restartRsyslog
+  log 'removed the managed rsyslog Logstash drop-in (LOGSTASH_SYSLOG_SERVER is unset)'
+fi
+{{- end -}}
