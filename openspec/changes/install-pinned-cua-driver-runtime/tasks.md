@@ -61,3 +61,15 @@ The pre-change hook is retained at
 `~/.local/state/install-doctor/cua-hook-rollback-5772c1d5`.
 This live readback covers discovery and preservation. Fresh
 GNOME 50 helper activation remains conditional.
+
+The enrolled Omen desktop was running a legacy hook that downloaded
+an unpinned installer and registered the driver with agent harnesses.
+The scoped rollout replaced that hook and added the two missing
+runtime and Linux autostart helpers from upstream Install Doctor.
+The existing host-specific default-enabled selection was retained.
+The deployed hook digest is
+`97adbe97863f195736218d2e7d4bd10a60bd9f73b64ae543fcdaf772aae7a2a7`.
+Session detection over SSH and explicit headless skip passed.
+The existing daemon remained on PID `759228`. No harness configuration
+was rewritten or revoked by the rollout. The previous hook is stored
+at `~/.local/state/install-doctor/cua-hook-rollback-b51b2542`.
