@@ -46,6 +46,7 @@ if [ "${INSTALL_DOCTOR_CUA_DRIVER:-0}" != "1" ] || [ "${HEADLESS_INSTALL:-}" = "
   skip 'Cua Driver skipped by provisioning selection or headless mode'
 fi
 
+desktop_type=
 has_local_user_desktop() {
   (( EUID != 0 )) || return 1
   case "$(uname -s)" in
@@ -66,6 +67,7 @@ has_local_user_desktop() {
            grep -Eq '^Seat=[^[:space:]]+$' <<<"$properties" &&
            grep -Fxq 'Remote=no' <<<"$properties" &&
            grep -Fxq 'Active=yes' <<<"$properties"; then
+          desktop_type=$(sed -n 's/^Type=//p' <<<"$properties")
           return 0
         fi
       done <<<"$sessions"
@@ -92,27 +94,21 @@ fi
 cua-driver telemetry disable >/dev/null 2>&1 || true
 command -v cua >/dev/null 2>&1 && cua telemetry off >/dev/null 2>&1 || true
 
-# GNOME Wayland helper (winrects@cua extension) on Linux desktops
-if [ "$OS" != "macos" ] && [ -f "$HOME/.cua-driver/packages/current/wayland-helper/install.sh" ]; then
-  log "Installing Cua Driver GNOME Wayland helper (winrects@cua)..."
-  bash "$HOME/.cua-driver/packages/current/wayland-helper/install.sh" >/dev/null 2>&1 || true
-fi
-
-# Ensure winrects@cua declares GNOME Shell 50/51 so Ubuntu 26.04 loads it without OUT OF DATE
-if [ "$OS" != "macos" ]; then
-  WINRECTS_META="$HOME/.local/share/gnome-shell/extensions/winrects@cua/metadata.json"
-  if [ -f "$WINRECTS_META" ]; then
-    node -e '
-const fs = require("node:fs");
-const p = process.argv[1];
-try {
-  const data = JSON.parse(fs.readFileSync(p, "utf8"));
-  const sv = Array.isArray(data["shell-version"]) ? data["shell-version"] : [];
-  for (const v of ["50", "51"]) { if (!sv.includes(v)) sv.push(v); }
-  data["shell-version"] = sv;
-  fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n");
-} catch { process.exit(0); }
-' "$WINRECTS_META" >/dev/null 2>&1 && log "Ensured GNOME Shell 50/51 compatibility for winrects@cua" || true
+# Preserve an existing extension and install a bundled helper only for a declared GNOME version.
+if [[ "$desktop_type" == wayland ]] && command -v gnome-shell >/dev/null 2>&1; then
+  extension="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/winrects@cua"
+  if [[ ! -e "$extension" && ! -L "$extension" ]]; then
+    driver=$(readlink -f -- "$(command -v cua-driver)")
+    helper="$(dirname "$driver")/wayland-helper"
+    shell_version=$(LC_ALL=C gnome-shell --version)
+    if [[ "$shell_version" =~ ^GNOME[[:space:]]Shell[[:space:]]([0-9]+)\. &&
+          -f "$helper/install.sh" ]] &&
+       jq -e --arg version "${BASH_REMATCH[1]}" '.["shell-version"] | index($version) != null' \
+         "$helper/winrects@cua/metadata.json" >/dev/null 2>&1; then
+      bash "$helper/install.sh" || warn 'Cua Driver WinRects helper setup failed'
+    else
+      warn 'Cua Driver WinRects helper skipped because this GNOME version or bundle is unverified'
+    fi
   fi
 fi
 
