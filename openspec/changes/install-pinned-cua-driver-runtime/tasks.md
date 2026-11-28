@@ -17,3 +17,14 @@ An interactive fresh Mac activation, native permissions, and Linux
 Wayland helper compatibility are still pending. The pinned helper
 declares GNOME 45–49; fresh GNOME 50 window geometry needs its own
 supported helper and live session verification.
+
+Install Doctor `4083c6d0` is staged on the live Legion account.
+The installed helper SHA-256 is
+`02013e810f8c8911a7b9e4a1409c08bbd62756a567ae6535c20dbbc071dcb609`.
+The existing Legion hook was patched only at its absent-runtime
+branch, resulting in SHA-256
+`6f424a651491cab88136febde343b72df00bb9f2f98dd09bff5dece891d5bf33`.
+Its selected headless run skipped correctly. The active user daemon
+remained on PID 1230329. The prior hook is retained at
+`~/.local/state/install-doctor/cua-hook-rollback-ed8aa757`.
+Restore it atomically if this provisioning change must be rolled back.
