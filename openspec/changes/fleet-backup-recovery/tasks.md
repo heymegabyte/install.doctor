@@ -291,3 +291,9 @@ Omen additionally exercised its required-source mount check.
 The historical systemd descriptions still say Prune; execution used
 the confirmed preview-only writers. Other fleet hosts and independent
 credential recovery remain open.
+
+## Sanoid provisioning canary
+
+- [x] Preserve existing Sanoid policy and detect known competing systemd snapshot timers in the workstation hook. Install Doctor revision `3a0408b6` passed the existing-policy, competing-timer, and failed-introspection fixtures.
+- [x] Verify the Sanoid guard on Legion. On November 28 the live read-only branch preserved the existing configuration checksum and timer state. Separate Linux fixtures verified that a concurrently created policy survives, staging is cleaned up, and a fresh install prepares the policy and capacity guard before requesting timer activation.
+- [ ] Extend live ownership checks across configured scheduler types and verify full workstation reprovisioning against a fresh canary.
