@@ -154,6 +154,7 @@ interface RemoteFetchResult {
   readonly status: number;
   readonly contentType: string;
   readonly body: Buffer;
+  readonly contentRange?: string;
 }
 
 interface UpstreamCandidate {
@@ -435,6 +436,7 @@ function rewriteRegistryMetadata(
 async function fetchUpstreamArtifact(
   targetUrl: string,
   incomingHeaders: IncomingMessage["headers"],
+  range?: string,
 ): Promise<RemoteFetchResult> {
   const headers: Record<string, string> = {
     "user-agent":
@@ -448,6 +450,11 @@ async function fetchUpstreamArtifact(
       headers[headerName] = value;
     }
   }
+  if (range) {
+    headers.range = range;
+    headers["accept-encoding"] = "identity";
+    if (incomingHeaders["if-range"]) headers["if-range"] = incomingHeaders["if-range"];
+  }
   const response = await fetch(targetUrl, {
     method: "GET",
     headers,
@@ -459,6 +466,7 @@ async function fetchUpstreamArtifact(
     status: response.status,
     contentType: response.headers.get("content-type") ?? "application/octet-stream",
     body: Buffer.from(arrayBuffer),
+    contentRange: response.headers.get("content-range") ?? undefined,
   };
 }
 
@@ -469,6 +477,7 @@ function sendBufferResponse(
   body: Buffer,
   cacheHeader: string,
   headOnly: boolean,
+  contentRange?: string,
 ): void {
   if (res.destroyed || res.writableEnded) {
     return;
@@ -477,6 +486,7 @@ function sendBufferResponse(
     "Content-Type": contentType,
     "Content-Length": String(body.byteLength),
     "X-Megabyte-Cache": cacheHeader,
+    ...(contentRange ? { "Content-Range": contentRange } : {}),
     Connection: "close",
   });
   if (headOnly || body.byteLength === 0) {
@@ -628,10 +638,69 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     repositoryName.includes("npm") || repositoryName.includes("pypi") ? acceptHeader : "";
   const cacheKey = `${repositoryName}/${relativePath}|accept=${acceptDiscriminator}`;
   const immutable = isImmutableArtifact(repositoryName, relativePath);
+  const debArtifact = repositoryName.startsWith("apt-") && (relativePath.split("?", 1)[0] ?? "").endsWith(".deb");
+  const hasExpectedFormat = (body: Buffer): boolean =>
+    !debArtifact || body.subarray(0, 8).equals(Buffer.from("!<arch>\n"));
   const { blobPath, headerPath } = resolveCachePaths(
     immutable ? CONFIG.blobsDir : CONFIG.metadataDir,
     cacheKey,
   );
+  const range = debArtifact && !headOnly ? req.headers.range : undefined;
+  if (range !== undefined) {
+    const requested = /^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$/.exec(range);
+    if (!requested) {
+      sendBufferResponse(res, 400, "text/plain", Buffer.from("Expected one byte range\n"), "MISS", false);
+      return;
+    }
+
+    if (req.headers["if-range"] === undefined && existsSync(blobPath) && existsSync(headerPath)) {
+      let archive: Buffer | undefined;
+      try {
+        const candidate = readFileSync(blobPath);
+        if (hasExpectedFormat(candidate)) archive = candidate;
+      } catch {
+        // Try the origin if the cached archive became unreadable.
+      }
+      if (archive) {
+        const length = archive.byteLength;
+        const suffix = requested[3];
+        const start = suffix === undefined ? Number(requested[1]) : Math.max(0, length - Number(suffix));
+        const end = suffix === undefined && requested[2] ? Math.min(Number(requested[2]), length - 1) : length - 1;
+        if (start > end) {
+          sendBufferResponse(res, 416, "text/plain", Buffer.alloc(0), "HIT-LOCAL", false, `bytes */${length}`);
+          return;
+        }
+        const part = archive.subarray(start, end + 1);
+        recordProxyOutcome("HIT-LOCAL", repositoryName, part.byteLength);
+        sendBufferResponse(res, 206, "application/x-debian-package", part, "HIT-LOCAL", false, `bytes ${start}-${end}/${length}`);
+        return;
+      }
+    }
+    try {
+      const remote = await fetchUpstreamArtifact(
+        `${CONFIG.nexusBaseUrl}/repository/${repositoryName}/${relativePath}`,
+        req.headers,
+        range,
+      );
+      const contentRange = remote.contentRange;
+      const partial = contentRange && /^bytes ([0-9]+)-([0-9]+)\/([0-9]+)$/.exec(contentRange);
+      const partialLength = partial && Number(partial[2]) - Number(partial[1]) + 1;
+      const validPartial = remote.status === 206 && partialLength === remote.body.length;
+      const unsatisfiable = remote.status === 416 && /^bytes \*\/[0-9]+$/.test(contentRange ?? "");
+      if (validPartial || unsatisfiable || (remote.status === 200 && hasExpectedFormat(remote.body))) {
+        sendBufferResponse(res, remote.status, remote.contentType, remote.body, "BYPASS-RANGE", false, contentRange);
+        return;
+      }
+      if (remote.status === 401 || remote.status === 403) {
+        sendBufferResponse(res, remote.status, "text/plain", Buffer.from("Package repository authorization failed\n"), "MISS-ERROR", false);
+        return;
+      }
+    } catch {
+      // Preserve the client's configured fallback on a failed range fetch.
+    }
+    sendBufferResponse(res, 502, "text/plain", Buffer.from("Package range response unavailable\n"), "MISS-ERROR", false);
+    return;
+  }
 
   if (existsSync(blobPath) && existsSync(headerPath)) {
     try {
@@ -639,6 +708,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
       const nowSeconds = Date.now() / 1000;
       if (immutable || nowSeconds - metadata.ts < CONFIG.metadataFreshTtlSeconds) {
         const cachedPayload = readFileSync(blobPath);
+        if (!hasExpectedFormat(cachedPayload)) throw new Error("Invalid cached Debian archive");
         if (immutable) {
           const nowDate = new Date();
           try {
@@ -685,6 +755,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
   for (const candidate of candidates) {
     try {
       const remote = await fetchUpstreamArtifact(candidate.targetUrl, req.headers);
+      if (remote.status === 200 && !hasExpectedFormat(remote.body)) continue;
       if (remote.status === 200) {
         const rewrittenPayload = rewriteRegistryMetadata(
           repositoryName,
@@ -723,6 +794,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     try {
       const metadata = JSON.parse(readFileSync(headerPath, "utf8")) as CacheEntryMetadata;
       const stalePayload = readFileSync(blobPath);
+      if (!hasExpectedFormat(stalePayload)) throw new Error("Invalid stale Debian archive");
       recordProxyOutcome("HIT-LOCAL-STALE", repositoryName, stalePayload.byteLength);
       sendBufferResponse(
         res,
