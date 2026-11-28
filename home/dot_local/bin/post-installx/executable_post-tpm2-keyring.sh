@@ -66,42 +66,39 @@ fi
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
 # Encrypted credential enrollment is performed separately by the host operator.
-if ! $SUDO test -s "/etc/credstore.encrypted/gnome-keyring-${target_uid}.cred"; then
+credential="/etc/credstore.encrypted/gnome-keyring-${target_uid}.cred"
+if ! $SUDO test -s "$credential"; then
   log_info "No enrolled encrypted GNOME keyring credential. Skipping."
   exit 0
 fi
-
-TMP_PLAIN=""
-TMP_CRED=""
-cleanup() {
-  if [[ -n "$TMP_PLAIN" ]]; then
-    rm -f -- "$TMP_PLAIN"
-  fi
-  if [[ -n "$TMP_CRED" ]]; then
-    $SUDO rm -f -- "$TMP_CRED"
-  fi
-}
-trap cleanup EXIT
-
-$SUDO install -d -m 0700 /etc/credstore.encrypted
-$SUDO install -d -m 0755 /usr/local/libexec
-
-# Verify TPM2 seal + unseal roundtrip using PCR 7 (Secure Boot state) so kernel upgrades (PCR 4) do not cause lockout
-TMP_PLAIN="$(mktemp)"
-TMP_CRED="/etc/credstore.encrypted/tpm2-selftest.cred"
-printf 'tpm2-keyring-selftest-ok' > "$TMP_PLAIN"
-$SUDO systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=7 --name=tpm2-selftest "$TMP_PLAIN" "$TMP_CRED"
-UNSEALED="$($SUDO systemd-creds decrypt --name=tpm2-selftest "$TMP_CRED" -)"
-rm -f "$TMP_PLAIN"
-$SUDO rm -f "$TMP_CRED"
-TMP_PLAIN=""
-TMP_CRED=""
-
-if [[ "$UNSEALED" != "tpm2-keyring-selftest-ok" ]]; then
-  log_warn "TPM2 seal/unseal roundtrip verification failed; refusing to enable TPM2 keyring unlock."
+if ! $SUDO test -f "$credential" || $SUDO test -L "$credential" ||
+   [[ "$($SUDO stat -c '%u:%g:%a' "$credential")" != 0:0:600 ]]; then
+  log_warn "Enrolled credential must be a root-owned mode-0600 file."
   exit 1
 fi
-log_info "TPM2 seal/unseal roundtrip verified via /dev/tpmrm0 (PCR 7)."
+
+# A private runtime directory prevents concurrent probes sharing a credential path.
+probe_dir="$($SUDO mktemp -d /run/install-doctor-tpm2.XXXXXX)"
+cleanup_probe() {
+  $SUDO rm -f -- "$probe_dir/selftest.cred"
+  $SUDO rmdir -- "$probe_dir"
+}
+trap cleanup_probe EXIT
+printf '%s' 'tpm2-keyring-selftest-ok' |
+  $SUDO timeout 20 systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=7 \
+    --name=tpm2-selftest - "$probe_dir/selftest.cred"
+if [[ "$($SUDO timeout 20 systemd-creds decrypt --name=tpm2-selftest "$probe_dir/selftest.cred" -)" != tpm2-keyring-selftest-ok ]]; then
+  log_warn "TPM2 seal/unseal roundtrip failed. Skipping keyring activation."
+  exit 1
+fi
+if ! $SUDO timeout 20 systemd-creds decrypt --name=gnome-keyring "$credential" /dev/null >/dev/null 2>&1; then
+  log_warn "Enrolled credential did not decrypt with the current boot policy."
+  exit 1
+fi
+cleanup_probe
+trap - EXIT
+log_info "TPM2 seal/unseal roundtrip and enrolled credential read succeeded."
+$SUDO install -d -m 0755 /usr/local/libexec
 
 # Install the helper for the credential that systemd delivers at activation.
 $SUDO tee /usr/local/libexec/tpm2-keyring-unlock >/dev/null <<'EOF'
