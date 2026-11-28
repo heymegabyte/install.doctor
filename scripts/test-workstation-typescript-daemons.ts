@@ -8,8 +8,9 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -132,6 +133,78 @@ describe("Workstation TypeScript Daemons", () => {
     assert.equal(metricsRes.status, 200);
     const metricsText = await metricsRes.text();
     assert.match(metricsText, /megabyte_local_proxy_requests_total\{result="HIT-LOCAL-CARGO-CONFIG"\} 1/);
+  });
+
+  it("routes exact private npm names before shared cache and rejects public fallback", async () => {
+    const [port, originPort] = await Promise.all([allocateRandomPort(), allocateRandomPort()]);
+    const cacheDir = mkdtempSync(join(tmpdir(), "mb-private-npm-"));
+    tempDirs.push(cacheDir);
+    const origin = `http://127.0.0.1:${originPort}`;
+    const base = `http://127.0.0.1:${port}`;
+    let status = 403;
+    let publicHits = 0;
+    let hostedHits = 0;
+    const upstream = createServer((req, res) => {
+      if (req.url?.startsWith("/public/")) {
+        publicHits++;
+        res.writeHead(200).end("public fallback");
+        return;
+      }
+      if (req.url === "/repository/npm-group/public-fixture") {
+        res.writeHead(404).end();
+        return;
+      }
+      hostedHits++;
+      assert.match(req.url ?? "", /^\/repository\/npm-hosted\//);
+      assert.equal(req.headers.authorization, "Bearer fixture-token");
+      if (status === 302) {
+        res.writeHead(status, { Location: origin + "/public/redirect" }).end();
+        return;
+      }
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        versions: { "1.0.0": { dist: { tarball: origin + "/repository/npm-hosted/reserved-fixture/-/fixture.tgz" } } },
+      }));
+    });
+    servers.push(upstream);
+    await new Promise<void>((resolve) => upstream.listen(originPort, "127.0.0.1", resolve));
+    const digest = createHash("sha256").update("npm-group/reserved-fixture|accept=application/json").digest("hex");
+    const shard = join(cacheDir, "local-proxy", "meta", digest.slice(0, 2));
+    mkdirSync(shard, { recursive: true });
+    writeFileSync(join(shard, digest + ".body.json"), "shared cache sentinel");
+    writeFileSync(join(shard, digest + ".hdr.json"), JSON.stringify({ ts: Date.now() / 1000, source: "MISS-VIA-UPSTREAM" }));
+    const redirectPublic = `
+      const fetchOriginal = globalThis.fetch;
+      globalThis.fetch = (target, options) => {
+        const url = new URL(target);
+        return fetchOriginal(url.hostname === "registry.npmjs.org" ? ${JSON.stringify(origin)} + "/public" + url.pathname : target, options);
+      };
+    `;
+    const proc = spawn(NODE_BIN, ["--experimental-strip-types", "--import", "data:text/javascript," + encodeURIComponent(redirectPublic), LOCAL_PROXY_PATH], {
+      env: { ...process.env, MEGABYTE_LOCAL_PROXY_PORT: String(port), MEGABYTE_CACHE_ROOT: cacheDir, MEGABYTE_NEXUS_URL: origin, MEGABYTE_NPM_PRIVATE_NAMES: "reserved-fixture" },
+      stdio: "ignore",
+    });
+    children.push(proc);
+    await waitForHttpReady(base + "/healthz");
+    const path = base + "/repository/npm-group/reserved-fixture";
+    const headers = { accept: "application/json", authorization: "Bearer fixture-token" };
+    assert.equal((await fetch(path)).status, 401);
+    assert.equal(hostedHits, 0);
+    for (const expected of [403, 404, 503]) {
+      status = expected;
+      assert.equal((await fetch(path, { headers })).status, expected);
+    }
+    status = 302;
+    assert.equal((await fetch(path, { headers })).status, 502);
+    status = 200;
+    const encoded = await fetch(base + "/repository/npm-group/%72eserved-fixture", { headers });
+    assert.equal(encoded.status, 200);
+    assert.match(await encoded.text(), /\/repository\/npm-hosted\/reserved-fixture\/-\/fixture.tgz/);
+    assert.equal(hostedHits, 5);
+    assert.equal(publicHits, 0);
+    assert.equal(await (await fetch(base + "/repository/npm-group/public-fixture")).text(), "public fallback");
+    assert.equal(publicHits, 1);
+    assert.equal(readFileSync(join(shard, digest + ".body.json"), "utf8"), "shared cache sentinel");
   });
 
   it("ollama-auth-proxy.ts enforces constant-time Bearer token auth and streams upstream responses", async () => {

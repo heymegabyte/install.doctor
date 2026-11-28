@@ -159,6 +159,13 @@ function resolveConfiguration(): ProxyConfiguration {
 }
 
 const CONFIG = resolveConfiguration();
+const npmName = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/;
+const privateNpmNames = new Set(
+  (process.env.MEGABYTE_NPM_PRIVATE_NAMES ?? "").split(",").map((name) => name.trim()).filter(Boolean),
+);
+for (const name of privateNpmNames) {
+  if (!npmName.test(name)) throw new Error("MEGABYTE_NPM_PRIVATE_NAMES contains an invalid npm name");
+}
 const START_TIME_SECONDS = Date.now() / 1000;
 
 mkdirSync(CONFIG.blobsDir, { recursive: true });
@@ -368,6 +375,56 @@ function rewriteRegistryMetadata(
     return Buffer.from(text, "utf8");
   }
   return body;
+}
+
+function rewritePrivateNpmMetadata(body: Buffer): Buffer {
+  const nexus = new URL(CONFIG.nexusBaseUrl);
+  const prefix = "/repository/npm-hosted/";
+  function visit(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    for (const [field, nested] of Object.entries(value)) {
+      if (field !== "tarball" || typeof nested !== "string") {
+        visit(nested);
+        continue;
+      }
+      const target = new URL(nested, nexus);
+      if (target.origin !== nexus.origin || target.username || target.password || !target.pathname.startsWith(prefix)) {
+        throw new Error("Invalid private npm artifact URL");
+      }
+      Object.defineProperty(value, field, { value: CONFIG.localBaseUrl + target.pathname + target.search });
+    }
+  }
+  const document: unknown = JSON.parse(body.toString("utf8"));
+  visit(document);
+  return Buffer.from(JSON.stringify(document));
+}
+
+async function handlePrivateNpm(
+  relativePath: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  headOnly: boolean,
+): Promise<void> {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    sendBufferResponse(res, 401, "text/plain", Buffer.from("Private npm credentials required\n"), "PRIVATE-NEXUS", headOnly);
+    return;
+  }
+
+  try {
+    const headers = { authorization, accept: req.headers.accept ?? "application/json" };
+    const remote = await fetch(CONFIG.nexusBaseUrl + "/repository/npm-hosted/" + relativePath, {
+      headers,
+      redirect: "error",
+      signal: AbortSignal.timeout(CONFIG.upstreamTimeoutMs),
+    });
+    const contentType = remote.headers.get("content-type") ?? "application/octet-stream";
+    const payload = Buffer.from(await remote.arrayBuffer());
+    const body = remote.ok && /json/i.test(contentType) ? rewritePrivateNpmMetadata(payload) : payload;
+    sendBufferResponse(res, remote.status, contentType, body, "PRIVATE-NEXUS", headOnly);
+  } catch {
+    sendBufferResponse(res, 502, "text/plain", Buffer.from("Private npm origin unavailable\n"), "PRIVATE-NEXUS", headOnly);
+  }
 }
 
 async function fetchUpstreamArtifact(
@@ -637,6 +694,29 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     recordProxyOutcome("HIT-LOCAL-CARGO-CONFIG", repositoryName, cargoConfig.byteLength);
     sendBufferResponse(res, 200, "application/json", cargoConfig, "HIT-LOCAL-CARGO-CONFIG", headOnly);
     return;
+  }
+
+  if (["npm-group", "npm-proxy", "npm-hosted"].includes(repositoryName)) {
+    let path: string;
+    try {
+      path = decodeURIComponent(relativePath.split("?", 1)[0] ?? "");
+    } catch {
+      sendBufferResponse(res, 400, "text/plain", Buffer.from("Invalid npm URL\n"), "MISS-ERROR", headOnly);
+      return;
+    }
+    const segments = path.split("/");
+    if (/[\\%?#\x00-\x20\x7f]/.test(path) ||
+      path.includes("//") || path.startsWith("/") ||
+      segments.some((part) => part === "." || part === "..")) {
+      sendBufferResponse(res, 400, "text/plain", Buffer.from("Invalid npm URL\n"), "MISS-ERROR", headOnly);
+      return;
+    }
+    const depth = segments[0]?.startsWith("@") ? 2 : 1;
+    const packageName = segments.slice(0, depth).join("/").toLowerCase();
+    if (repositoryName === "npm-hosted" || privateNpmNames.has(packageName)) {
+      await handlePrivateNpm(relativePath, req, res, headOnly);
+      return;
+    }
   }
 
   const acceptHeader = typeof req.headers.accept === "string" ? req.headers.accept : "";
