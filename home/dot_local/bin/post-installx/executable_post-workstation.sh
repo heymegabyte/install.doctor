@@ -3050,9 +3050,11 @@ EOF
   printf '[Unit]\nDescription=Background Monitoring & Non-Interactive Agents Slice\n\n[Slice]\nMemoryHigh=2G\nMemoryZSwapWriteback=false\nIOWeight=20\nCPUWeight=20\n' > "$TMP_DIR/background-agents.slice"
   run_root cp "$TMP_DIR/background-agents.slice" /etc/systemd/system/background-agents.slice
 
+  # Preserve the host policy for fail2ban. Some hosts use CrowdSec as their ban owner.
+
   # Canonical Ubuntu 26.04 telemetry, redundant sysstat/lynis timers, unneeded root daemons (CUPS, Avahi, ModemManager) & wsdd multicast eradication
   run_root rm -f /etc/xdg/systemd/user/timers.target.wants/launchpadlib-cache-clean.timer /etc/xdg/systemd/user/timers.target.wants/ubuntu-insights-collect.timer /etc/xdg/systemd/user/timers.target.wants/ubuntu-insights-upload.timer /usr/lib/systemd/user/timers.target.wants/launchpadlib-cache-clean.timer /usr/lib/systemd/user/timers.target.wants/ubuntu-insights-collect.timer /usr/lib/systemd/user/timers.target.wants/ubuntu-insights-upload.timer
-  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service ubuntu-insights-collect.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service cups.service cups.socket cups.path cups-browsed.service avahi-daemon.service avahi-daemon.socket ModemManager.service fail2ban.service; do
+  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service ubuntu-insights-collect.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service cups.service cups.socket cups.path cups-browsed.service avahi-daemon.service avahi-daemon.socket ModemManager.service; do
     run_root systemctl disable --now "$t_unit" >/dev/null 2>&1 || true
     run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
   done
