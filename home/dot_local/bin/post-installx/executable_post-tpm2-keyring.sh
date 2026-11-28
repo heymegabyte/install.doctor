@@ -38,6 +38,12 @@ fi
 
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
+# Encrypted credential enrollment is performed separately by the host operator.
+if ! $SUDO test -s /etc/credstore.encrypted/gnome-keyring.cred; then
+  log_info "No enrolled encrypted GNOME keyring credential. Skipping."
+  exit 0
+fi
+
 TMP_PLAIN=""
 TMP_CRED=""
 cleanup() {
@@ -83,11 +89,18 @@ if [[ ! -s "$CREDENTIAL" || ! -S "$RUNTIME_DIR/bus" ]]; then
   printf 'GNOME keyring unlock requires a credential and an active user bus.\n' >&2
   exit 1
 fi
-if ! sudo -n -u "$TARGET_USER" env \
-  XDG_RUNTIME_DIR="$RUNTIME_DIR" \
-  DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME_DIR/bus" \
-  /usr/bin/gnome-keyring-daemon --unlock <"$CREDENTIAL" >/dev/null 2>&1; then
+gnome_user=(sudo -n -u "$TARGET_USER" env
+  XDG_RUNTIME_DIR="$RUNTIME_DIR"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME_DIR/bus")
+if ! "${gnome_user[@]}" /usr/bin/gnome-keyring-daemon --unlock <"$CREDENTIAL" >/dev/null 2>&1; then
   printf 'GNOME keyring unlock command failed.\n' >&2
+  exit 1
+fi
+if ! lock_state=$("${gnome_user[@]}" /usr/bin/gdbus call --session --timeout 3 \
+  --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets/collection/login \
+  --method org.freedesktop.DBus.Properties.Get org.freedesktop.Secret.Collection Locked 2>/dev/null) ||
+  [[ "$lock_state" != '(<false>,)' ]]; then
+  printf 'GNOME login keyring is locked or could not be verified.\n' >&2
   exit 1
 fi
 EOF
@@ -112,16 +125,6 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-
-# If a local keyring secret file is provided, seal a copy into /etc/credstore.encrypted/gnome-keyring.cred
-KEYRING_SECRET_SRC="${TPM2_KEYRING_SECRET_FILE:-/etc/credstore/gnome-keyring.secret}"
-if [[ -s "$KEYRING_SECRET_SRC" ]] && ! $SUDO test -f /etc/credstore.encrypted/gnome-keyring.cred; then
-  $SUDO systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=7 --name=gnome-keyring \
-    "$KEYRING_SECRET_SRC" \
-    /etc/credstore.encrypted/gnome-keyring.cred
-  $SUDO chmod 0600 /etc/credstore.encrypted/gnome-keyring.cred
-  log_info "Sealed keyring credential into /etc/credstore.encrypted/gnome-keyring.cred (PCR 7)."
-fi
 
 $SUDO systemctl daemon-reload
 $SUDO systemctl enable --now tpm2-keyring-unlock.service
