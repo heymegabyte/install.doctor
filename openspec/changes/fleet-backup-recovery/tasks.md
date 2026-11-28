@@ -75,3 +75,24 @@ No item below is complete until its manifest, implementation, allowed/denied tes
 - [ ] E06 Query metadata-only access and alert events; attach leak-scan results for logs, process listings, crash reports, recordings, generated files, and repository history.
 - [ ] E07 Complete rotation/reload, urgent-revocation, offline-recovery, and historical-key-retention drills before retiring old credentials or keys.
 - [ ] E08 Publish per-repository enrollment states and fixture/canary/batch outcomes, including automatic configuration rollback evidence and honest blockers.
+
+### November 28 Restic writer canary
+
+The enrolled Ubuntu controller used the generated writer with automatic
+initialization and prune before the canary. While its oneshot was idle,
+the two command changes from `8c4109f8` were applied atomically to
+`/usr/local/sbin/restic-host-backup`, preserving owner and mode. The
+installed SHA-256 was
+`ee5404cb8005c193b74cdb317bccb81745facf22b054f226c1c27ad1dd03c7df`.
+
+A manual start through the existing systemd service completed with exit
+0, saved snapshot `ed74c4ea`, printed a nine-snapshot retention
+preview, and reported no errors in the integrity check. The timer
+remained active. Its next automatic execution was due November 28 at
+04:22:04 EST. Legion's explicitly external backup owner remained in
+place; Proxmox has no generated timer. No other host was changed.
+
+For rollback diagnosis, the previous revision is retained alongside
+the writer with suffix `.pre-retention-guard-20261128`. It can prune
+repository history. Keep the timer disabled if that revision must
+be restored while diagnosing a regression.
