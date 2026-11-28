@@ -19,6 +19,7 @@ import {
 } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pipeline } from "node:stream";
 
 interface OllamaGatewayProxyConfig {
   readonly listenHost: string;
@@ -441,7 +442,8 @@ async function handleGatewayRequest(req: IncomingMessage, res: ServerResponse): 
         res.end();
         return;
       }
-      upstreamRes.pipe(res);
+      // Propagate upstream truncation to the client instead of leaving a partial response open.
+      pipeline(upstreamRes, res, () => {});
     },
   );
 

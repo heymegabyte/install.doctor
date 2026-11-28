@@ -47,6 +47,10 @@ test("streams hold admission slots until the upstream closes", { timeout: 10000 
     assert.equal(body.keep_alive, upstreamRequests === 1 ? 0 : 1800);
     if (upstreamRequests === 1) response.once("close", markClosed);
     response.write('{"partial":true}\n');
+    if (upstreamRequests === 3) {
+      await delay(100);
+      response.destroy();
+    }
   });
   upstream.listen(0, "127.0.0.1");
   await once(upstream, "listening");
@@ -238,9 +242,26 @@ test("streams hold admission slots until the upstream closes", { timeout: 10000 
   const retryDeadline = AbortSignal.timeout(1000);
   while (true) {
     const retry = await generate(retryDeadline);
-    if (retry.status === 200) break;
+    if (retry.status === 200) {
+      const stream = retry.body?.getReader();
+      assert(stream);
+      assert.equal(new TextDecoder().decode((await stream.read()).value), '{"partial":true}\n');
+      await assert.rejects(stream.read(), /terminated/);
+      break;
+    }
     assert.equal(retry.status, 503);
     await delay(20, undefined, { signal: retryDeadline });
   }
   assert.equal(upstreamRequests, 3);
+  secondClient.abort();
+  while (true) {
+    const status = await admission("fixture-token");
+    const body = await status.json();
+    if (body.inFlight === 0) {
+      assert.equal(status.status, 200);
+      assert.equal(body.available, true);
+      break;
+    }
+    await delay(20, undefined, { signal: retryDeadline });
+  }
 });
