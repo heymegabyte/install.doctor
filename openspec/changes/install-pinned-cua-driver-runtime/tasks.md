@@ -41,3 +41,23 @@ Upstream 0.67.0 has different extension code but still omits 50
 from the supported shell versions. Preserve the currently operating
 session and keep fresh GNOME 50 helper activation conditional on
 supported upstream metadata and a representative session test.
+
+Install Doctor `e562b9fe` now checks the bundled helper's declared
+GNOME major version and preserves an existing helper. The Linux
+fixture from `ed32d9f3` passed on Legion under the managed desktop
+account. It exercised an unsupported GNOME 50 bundle, a declared
+GNOME 49 bundle, and preservation of existing extension metadata.
+
+The helper guard was applied to Legion's effective provisioning
+hook with its host-specific selection and autostart behavior intact.
+The installed hook digest is
+`2f883b108910152fa84c2f3e02d7f8a7aa689321da643640c494eabf3370bcc1`.
+The deployed `--check-session` entry point recognized the active
+physical Wayland session from SSH with both display variables
+unset. The Cua service PID stayed at `1230329` and the installed
+WinRects metadata digest stayed at
+`da8b438865f98e6edf3ad1eed93e7a3121f906ff13d75504e6a4264d82c161c5`.
+The pre-change hook is retained at
+`~/.local/state/install-doctor/cua-hook-rollback-5772c1d5`.
+This live readback covers discovery and preservation. Fresh
+GNOME 50 helper activation remains conditional.
