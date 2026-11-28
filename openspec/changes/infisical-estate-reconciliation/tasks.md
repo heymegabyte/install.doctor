@@ -89,3 +89,24 @@
 - [ ] 7.2f Add a deterministic metadata-only listing and closed-set sync validator across inventory, profiles, host/workload targets, validation ledger, destination evidence, offline exceptions, and retirement assertions.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.
+
+## Legion Nexus enrollment checkpoint
+
+On November 28 the deployed Legion adapter had no systemd credential
+files for the Nexus Access pair. Both exact reads failed with
+`INSTALL_DOCTOR_SECRET_BACKEND=infisical`. The host had no
+`~/.infisical.json` consumer binding. The focused host-binding,
+identity-policy, and estate-reconciliation tests passed.
+
+The Legion estate profile uses a legacy project folder under
+`/hosts/legion-megabyte-space`. The host consumer introduced in
+`a9826ece` deliberately uses the root of a dedicated host project
+and renders bindings for macOS and Ubuntu only. A usable Legion
+binding requires an independently admitted host project and identity,
+or a reviewed change to the host binding contract with exact scoped
+denial tests. A legacy profile entry alone grants no access.
+
+After enrollment, verify allowed reads, cross-host and administrative
+denials, and renewal and revocation. Then bind the two Nexus Access
+credentials to the managed adapter and verify a real authenticated
+cold and warm request. The existing cached path remains available.
