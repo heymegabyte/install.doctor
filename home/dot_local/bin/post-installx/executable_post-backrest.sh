@@ -173,6 +173,16 @@ if ! restic snapshots >/dev/null 2>&1; then
   exit 1
 fi
 
+# Bind a configured repository identity before the first write.
+if [[ -n "\${RESTIC_EXPECTED_REPOSITORY_ID:-}" ]]; then
+  if [[ ! "\$RESTIC_EXPECTED_REPOSITORY_ID" =~ ^[0-9a-f]{64}$ ]] ||
+     ! actual_id=\$(timeout 45 restic --no-lock --no-cache cat config 2>/dev/null | jq -er '.id') ||
+     [[ "\$actual_id" != "\$RESTIC_EXPECTED_REPOSITORY_ID" ]]; then
+    echo "ERROR: configured Restic repository identity could not be verified" >&2
+    exit 1
+  fi
+fi
+
 BACKUP_PATHS=()
 for base_path in /etc/ufw /etc/fail2ban /etc/netdata /etc/sanoid /etc/backrest/excludes.txt /etc/smartd.conf; do
   [[ -e "\$base_path" ]] && BACKUP_PATHS+=("\$base_path")

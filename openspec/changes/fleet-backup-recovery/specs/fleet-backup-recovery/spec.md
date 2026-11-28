@@ -146,3 +146,9 @@ The generated Install Doctor Restic writer SHALL require a readable initialized 
 
 - **WHEN** the writer completes a backup in the enrolled repository
 - **THEN** it previews retention and runs the integrity check without invoking prune
+
+#### Scenario: A host has an enrolled repository identity
+
+- **WHEN** an enrolled host provides a full expected Restic repository ID
+- **THEN** the writer reads the authenticated repository configuration and requires an exact ID match before making a backup
+- **AND** an invalid or nonmatching ID fails before backup or retention preview

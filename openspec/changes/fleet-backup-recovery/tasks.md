@@ -106,3 +106,13 @@ for byte. The sample and temporary directory were removed before the
 SSH command returned success. This verifies configuration readability
 for the manual canary generation. The timer invocation and independent
 credential recovery require their own checks.
+
+- [x] Add an enrolled repository identity check to the generated Restic writer.
+  The root-owned backup environment can set `RESTIC_EXPECTED_REPOSITORY_ID`
+  to the full Restic configuration ID. A local Restic fixture rejected
+  a readable repository with the wrong ID before creating any snapshot.
+  The correct ID allowed one backup. Existing enrollments can adopt
+  this setting after independently identifying their repository.
+
+- [ ] Enroll and verify the identity guard on a production canary and
+  evaluate scheduled rollout on the remaining managed writers.
