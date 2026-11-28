@@ -138,6 +138,10 @@ test('plain streams require an independently encrypted destination', () => {
   assert.ok(blocked.findings.some(item => item.code === 'encryption-mismatch'));
 
   candidate.destination.encryption = 'native';
+  const locked = planSyncoidAdmission(plainPolicy, candidate);
+  assert.equal(locked.status, 'blocked');
+  assert.ok(locked.findings.some(item => item.detail.includes('loaded destination key')));
+
   candidate.destination.keyLoaded = true;
   const allowed = planSyncoidAdmission(plainPolicy, candidate);
   assert.equal(allowed.status, 'ready');

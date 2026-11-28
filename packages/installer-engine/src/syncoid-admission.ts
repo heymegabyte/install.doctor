@@ -147,6 +147,9 @@ export function planSyncoidAdmission(policyInput: unknown, observationInput: unk
   const projected = observed.destination.allocatedBytes + policy.capacity.estimatedTransferBytes;
   if (!Number.isSafeInteger(projected) || projected + policy.capacity.reserveBytes > observed.destination.sizeBytes || projected / observed.destination.sizeBytes >= policy.capacity.admissionRatio) findings.push({ severity: 'blocked', code: 'capacity-blocked', subject: observed.destination.dataset, detail: 'estimated transfer breaches destination admission threshold or protected reserve' });
   if (observed.destination.encryption !== 'native') findings.push({ severity: 'blocked', code: 'encryption-mismatch', subject: observed.destination.dataset, detail: 'independent replica must use native ZFS encryption at rest' });
+  if (policy.encryptionMode === 'plain' && observed.destination.encryption === 'native' && !observed.destination.keyLoaded) {
+    findings.push({ severity: 'blocked', code: 'encryption-mismatch', subject: observed.destination.dataset, detail: 'plain encrypted receive requires a loaded destination key' });
+  }
   if (policy.encryptionMode === 'raw') {
     if (observed.source.encryption !== 'native') findings.push({ severity: 'blocked', code: 'encryption-mismatch', subject: observed.source.dataset, detail: 'raw replication requires a natively encrypted source' });
     if (observed.destination.keyLoaded) findings.push({ severity: 'warning', code: 'encryption-mismatch', subject: observed.destination.dataset, detail: 'raw replica destination does not require a loaded decryption key' });

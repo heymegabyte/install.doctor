@@ -298,3 +298,14 @@ credential recovery remain open.
 - [x] Verify the Sanoid guard on Legion. On November 28 the live read-only branch preserved the existing configuration checksum and timer state. Separate Linux fixtures verified that a concurrently created policy survives, staging is cleaned up, and a fresh install prepares the policy and capacity guard before requesting timer activation.
 - [ ] Extend live ownership checks across configured scheduler types and verify full workstation reprovisioning against a fresh canary.
 - [x] Fail closed on missing or malformed ZFS capacity. Install Doctor revision `42c206be` passed threshold and unavailable-data fixtures. Legion deployed the guard as a Sanoid preflight and verified both a systemd denial fixture and a successful scheduled invocation. Deployment, invocation IDs, and rollback are recorded in [Legion's recovery runbook](https://github.com/heymegabyte/legion.megabyte.space/blob/687cd94/BACKUP-RECOVERY.md).
+
+### Plain receive key availability
+
+A November 28 Proxmox fixture used an unencrypted disposable source and
+an AES-256-GCM receiver with an ephemeral key. The plain incremental
+receive failed while the receiver's inherited key was unloaded and
+created no target snapshot. With the key loaded, the exact incremental
+stream succeeded, the source and receiver snapshot GUIDs matched, and
+the receiver stayed unmounted. The fixture datasets and key were
+removed. The planner now rejects this known-unavailable key state.
+Production receiver credential custody and scheduling remain open.
