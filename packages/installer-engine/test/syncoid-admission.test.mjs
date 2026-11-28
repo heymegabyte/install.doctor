@@ -125,3 +125,20 @@ test('strict validation rejects unsafe policy, mutable discovery, and ambiguous 
   const unknownHold = structuredClone(observation); unknownHold.holds[0].snapshotGuid = 'missing';
   assert.throws(() => discoverSyncoidState(unknownHold), /observed snapshot GUID/);
 });
+
+test('plain streams require an independently encrypted destination', () => {
+  const plainPolicy = { ...policy, encryptionMode: 'plain' };
+  const candidate = structuredClone(observation);
+  candidate.source.encryption = 'off';
+  candidate.source.historyMode = 'plain';
+  candidate.destination.encryption = 'off';
+  candidate.destination.historyMode = 'plain';
+  const blocked = planSyncoidAdmission(plainPolicy, candidate);
+  assert.equal(blocked.status, 'blocked');
+  assert.ok(blocked.findings.some(item => item.code === 'encryption-mismatch'));
+
+  candidate.destination.encryption = 'native';
+  candidate.destination.keyLoaded = true;
+  const allowed = planSyncoidAdmission(plainPolicy, candidate);
+  assert.equal(allowed.status, 'ready');
+});
