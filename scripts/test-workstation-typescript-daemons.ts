@@ -151,12 +151,16 @@ describe("Workstation TypeScript Daemons", () => {
         return;
       }
       if (req.url === "/repository/npm-group/public-fixture") {
-        res.writeHead(404).end();
+        res.writeHead(200, { "Content-Type": "text/html; charset=UTF-8" }).end("<html>Access login</html>");
         return;
       }
       hostedHits++;
       assert.match(req.url ?? "", /^\/repository\/npm-hosted\//);
       assert.equal(req.headers.authorization, "Bearer fixture-token");
+      if (status === 204) {
+        res.writeHead(200, { "Content-Type": "text/html" }).end("<html>Access login</html>");
+        return;
+      }
       if (status === 302) {
         res.writeHead(status, { Location: origin + "/public/redirect" }).end();
         return;
@@ -203,6 +207,9 @@ describe("Workstation TypeScript Daemons", () => {
     assert.equal(hostedHits, 5);
     assert.equal(publicHits, 0);
     assert.equal(await (await fetch(base + "/repository/npm-group/public-fixture")).text(), "public fallback");
+    assert.equal(publicHits, 1);
+    status = 204;
+    assert.equal((await fetch(path, { headers })).status, 502);
     assert.equal(publicHits, 1);
     assert.equal(readFileSync(join(shard, digest + ".body.json"), "utf8"), "shared cache sentinel");
   });

@@ -399,6 +399,11 @@ function rewritePrivateNpmMetadata(body: Buffer): Buffer {
   return Buffer.from(JSON.stringify(document));
 }
 
+function isNpmHtml(repositoryName: string, contentType: string | undefined): boolean {
+  return ["npm-group", "npm-proxy", "npm-hosted"].includes(repositoryName) &&
+    /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType?.trim() ?? "");
+}
+
 async function handlePrivateNpm(
   relativePath: string,
   req: IncomingMessage,
@@ -419,6 +424,10 @@ async function handlePrivateNpm(
       signal: AbortSignal.timeout(CONFIG.upstreamTimeoutMs),
     });
     const contentType = remote.headers.get("content-type") ?? "application/octet-stream";
+    if (remote.ok && isNpmHtml("npm-hosted", contentType)) {
+      await remote.body?.cancel();
+      throw new Error("Unexpected HTML from private npm origin");
+    }
     const payload = Buffer.from(await remote.arrayBuffer());
     const body = remote.ok && /json/i.test(contentType) ? rewritePrivateNpmMetadata(payload) : payload;
     sendBufferResponse(res, remote.status, contentType, body, "PRIVATE-NEXUS", headOnly);
@@ -732,6 +741,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
   if (existsSync(blobPath) && existsSync(headerPath)) {
     try {
       const metadata = JSON.parse(readFileSync(headerPath, "utf8")) as CacheEntryMetadata;
+      if (isNpmHtml(repositoryName, metadata.content_type)) throw new Error("Cached npm HTML response");
       const nowSeconds = Date.now() / 1000;
       if (immutable || nowSeconds - metadata.ts < CONFIG.metadataFreshTtlSeconds) {
         const cachedPayload = readFileSync(blobPath);
@@ -782,6 +792,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     try {
       const remote = await fetchUpstreamArtifact(candidate.targetUrl, req.headers);
       if (remote.status === 200) {
+        if (isNpmHtml(repositoryName, remote.contentType)) continue;
         const rewrittenPayload = rewriteRegistryMetadata(
           repositoryName,
           relativePath,
@@ -818,6 +829,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
   if (existsSync(blobPath) && existsSync(headerPath)) {
     try {
       const metadata = JSON.parse(readFileSync(headerPath, "utf8")) as CacheEntryMetadata;
+      if (isNpmHtml(repositoryName, metadata.content_type)) throw new Error("Cached npm HTML response");
       const stalePayload = readFileSync(blobPath);
       recordProxyOutcome("HIT-LOCAL-STALE", repositoryName, stalePayload.byteLength);
       sendBufferResponse(
