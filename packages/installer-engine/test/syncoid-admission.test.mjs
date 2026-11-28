@@ -146,3 +146,24 @@ test('plain streams require an independently encrypted destination', () => {
   const allowed = planSyncoidAdmission(plainPolicy, candidate);
   assert.equal(allowed.status, 'ready');
 });
+
+test('orders destination divergence by receiver-local transaction groups', () => {
+  const candidate = structuredClone(observation);
+  candidate.sourceSnapshots[0].createdTxg = 1_000;
+  candidate.sourceSnapshots[1].createdTxg = 2_000;
+  candidate.destinationSnapshots[0].createdTxg = 100;
+  candidate.destinationSnapshots.push({
+    name: 'backup/zen/data@local', guid: 'destination-only', createdTxg: 101,
+  });
+  const blocked = planSyncoidAdmission(policy, candidate);
+  assert.equal(blocked.status, 'blocked');
+  assert.ok(blocked.findings.some(item => item.code === 'destination-diverged'));
+
+  candidate.sourceSnapshots[0].createdTxg = 10;
+  candidate.sourceSnapshots[1].createdTxg = 20;
+  candidate.destinationSnapshots[1].createdTxg = 99;
+  assert.equal(planSyncoidAdmission(policy, candidate).status, 'ready');
+
+  candidate.destinationSnapshots.shift();
+  assert.ok(planSyncoidAdmission(policy, candidate).findings.some(item => item.code === 'destination-diverged'));
+});

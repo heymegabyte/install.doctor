@@ -309,3 +309,11 @@ stream succeeded, the source and receiver snapshot GUIDs matched, and
 the receiver stayed unmounted. The fixture datasets and key were
 removed. The planner now rejects this known-unavailable key state.
 Production receiver credential custody and scheduling remain open.
+
+A disposable November 28 native receive preserved the source snapshot
+GUID but assigned a different transaction group to the received
+snapshot. The Syncoid admission planner therefore compares
+destination-only snapshots with the receiver-side anchor transaction
+group. If the anchor is represented only by a receiver bookmark, it
+cannot order destination-only snapshots and reports the divergence for
+manual review. Cross-pool numeric comparisons are excluded.

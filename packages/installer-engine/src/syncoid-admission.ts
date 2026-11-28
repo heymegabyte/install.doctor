@@ -166,9 +166,12 @@ export function planSyncoidAdmission(policyInput: unknown, observationInput: unk
   else if (observed.destinationSnapshots.length > 0 || observed.destinationBookmarks.length > 0) findings.push({ severity: 'blocked', code: 'common-anchor-missing', subject: observed.destination.dataset, detail: 'populated destination has no common snapshot or bookmark; explicit reseed review is required' });
 
   if (commonAnchorGuid) {
-    const anchorTxg = sourceOrder.get(commonAnchorGuid);
-    const destinationOnly = observed.destinationSnapshots.filter(snapshot => !sourceGuids.has(snapshot.guid) && (anchorTxg === undefined || snapshot.createdTxg > anchorTxg));
-    if (destinationOnly.length > 0) findings.push({ severity: 'blocked', code: 'destination-diverged', subject: observed.destination.dataset, detail: `${destinationOnly.length} destination-only snapshot(s) follow the common anchor; automatic rollback and deletion are forbidden` });
+    // Transaction groups are local to the pool that created the snapshot.
+    const destinationAnchorTxg = observed.destinationSnapshots.find(snapshot => snapshot.guid === commonAnchorGuid)?.createdTxg;
+    const destinationOnly = observed.destinationSnapshots.filter(snapshot =>
+      !sourceGuids.has(snapshot.guid) &&
+      (destinationAnchorTxg === undefined || snapshot.createdTxg >= destinationAnchorTxg));
+    if (destinationOnly.length > 0) findings.push({ severity: 'blocked', code: 'destination-diverged', subject: observed.destination.dataset, detail: `${destinationOnly.length} destination-only snapshot(s) cannot be proven older than the common anchor; automatic rollback and deletion are forbidden` });
   }
   for (const hold of observed.holds) findings.push({ severity: 'info', code: 'dependency-preserved', subject: hold.snapshotGuid, detail: `preserve hold tags: ${[...new Set(hold.tags)].sort().join(', ')}` });
   for (const bookmark of observed.destinationBookmarks) findings.push({ severity: 'info', code: 'dependency-preserved', subject: bookmark.name, detail: 'preserve destination bookmark as replication history' });
