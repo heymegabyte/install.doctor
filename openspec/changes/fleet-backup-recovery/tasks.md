@@ -172,3 +172,19 @@ at 04:24:52 EST. No new backup was triggered by enrollment.
 Rollback uses the prior writer with suffix
 `.pre-repository-identity-20261128` and removal of only the identity
 drop-in while the writer is idle, followed by a systemd reload.
+
+Omen's writer now requires all eight roots from its verified baseline.
+The installed preflight rejects unreadable, wrongly mounted or empty
+roots before credential lookup and backup. It checks the seven system
+roots against `rpool/ROOT/ubuntu_7047hx` and the Cloudflare
+configuration directory against `rpool/USERDATA/home_77obhm`.
+These are Omen's observed dataset identities.
+
+The normal host and deployed `--verify-sources` checks passed. An
+isolated mount namespace put an empty temporary filesystem on
+`/etc/ufw`; the candidate failed at that root, and the real mount
+remained unchanged. The installed SHA-256 is
+`b1a9f54555cff400ddea8aa71b0e82d361d42098c874ea186032391c7d782b3c`.
+The previous pinned writer is saved with suffix
+`.pre-required-sources-20261128`. The next scheduled capture must
+still exercise the checks with repository credentials.
