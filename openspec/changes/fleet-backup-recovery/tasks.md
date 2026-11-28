@@ -261,3 +261,13 @@ services stayed active. The disposable key was removed. This proves
 live acquisition and classification for the allowlisted route. It
 does not exercise packet dropping on an external source or original
 client attribution through the Cloudflare Access fallback.
+
+A separate two-minute CrowdSec decision for documentation address
+`192.0.2.174` appeared in the live Ubuntu controller nftables table
+and disappeared after deletion by exact decision ID. The enrolled
+SSH route and UFW remained active. A disposable veth namespace
+packet-path fixture could not reach its host-side peer even before
+a decision was created, so it supplied no valid packet-drop
+comparison. Its interface and namespace were removed. The table
+propagation test is verified; positive-control packet acceptance
+and subsequent denial remain open.
