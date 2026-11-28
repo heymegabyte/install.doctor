@@ -77,6 +77,15 @@ if ! $SUDO test -f "$credential" || $SUDO test -L "$credential" ||
   exit 1
 fi
 
+# systemd v259 creds-util.h identifies the TPM2 HMAC format with this ID.
+# The later authenticated decrypt verifies the blob, including this header.
+credential_type=$($SUDO base64 -d -- "$credential" |
+  od -An -v -tx1 -w16 | awk 'NR == 1 { gsub(/ /, ""); print }')
+if [[ "$credential_type" != 0c7cc07b117645919c4b0bea08bc20fe ]]; then
+  log_warn "Enrolled credential must use systemd-creds --with-key=tpm2."
+  exit 1
+fi
+
 # A private runtime directory prevents concurrent probes sharing a credential path.
 probe_dir="$($SUDO mktemp -d /run/install-doctor-tpm2.XXXXXX)"
 cleanup_probe() {
