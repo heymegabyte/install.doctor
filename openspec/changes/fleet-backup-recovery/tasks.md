@@ -139,3 +139,22 @@ also passed a read-only `restic restore --verify` for the complete
 12 regular files matched recorded paths, modes and ownership.
 The root-private runtime directory was removed before the
 SSH command returned success.
+
+### November 28 Omen retention guard rollout
+
+Omen had an active scheduled Restic writer with the old initialization
+and prune commands. The verified Ubuntu canary command changes were
+applied atomically while Omen's service was idle, retaining owner and
+mode. The installed SHA-256 is
+`8bcf6c1dd0911eeeeddfc1c9942621bb974af920ec934ba2ee4aeb2cc4d339a9`.
+The existing timer remained active and was due at 04:15:25 EST.
+Read-only inspection of the enrolled repository identified the
+preceding Omen snapshot
+`2f858a7767627fbcf675e221c32bd2441c47243b0bd43a9929681d3a6d8feafa`
+with eight roots. The snapshot is the baseline for the next
+scheduled execution and restore test. Omen's PBS timer remained
+active and outside this change.
+
+The previous Restic writer is saved with suffix
+`.pre-retention-guard-20261128`. Keep the timer disabled if the
+old writer must be restored for diagnosis, since it can prune history.
