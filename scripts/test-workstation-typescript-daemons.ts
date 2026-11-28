@@ -141,22 +141,31 @@ describe("Workstation TypeScript Daemons", () => {
     tempDirs.push(cacheDir);
     const origin = `http://127.0.0.1:${originPort}`;
     const base = `http://127.0.0.1:${port}`;
+    const nexus = "https://nexus.megabyte.space";
+    const secret = join(cacheDir, "nexus-npm-access-client-secret");
+    writeFileSync(join(cacheDir, "nexus-npm-access-client-id"), "fixture-edge-id");
+    writeFileSync(secret, "fixture-edge-secret");
     let status = 403;
     let publicHits = 0;
     let hostedHits = 0;
     const upstream = createServer((req, res) => {
       if (req.url?.startsWith("/public/")) {
+        assert.equal(req.headers["cf-access-client-id"], undefined);
+        assert.equal(req.headers["cf-access-client-secret"], undefined);
         publicHits++;
         res.writeHead(200).end("public fallback");
         return;
       }
       if (req.url === "/repository/npm-group/public-fixture") {
+        assert.equal(req.headers["cf-access-client-id"], undefined);
         res.writeHead(200, { "Content-Type": "text/html; charset=UTF-8" }).end("<html>Access login</html>");
         return;
       }
       hostedHits++;
       assert.match(req.url ?? "", /^\/repository\/npm-hosted\//);
       assert.equal(req.headers.authorization, "Bearer fixture-token");
+      assert.equal(req.headers["cf-access-client-id"], "fixture-edge-id");
+      assert.equal(req.headers["cf-access-client-secret"], "fixture-edge-secret");
       if (status === 204) {
         res.writeHead(200, { "Content-Type": "text/html" }).end("<html>Access login</html>");
         return;
@@ -167,7 +176,7 @@ describe("Workstation TypeScript Daemons", () => {
       }
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
-        versions: { "1.0.0": { dist: { tarball: origin + "/repository/npm-hosted/reserved-fixture/-/fixture.tgz" } } },
+        versions: { "1.0.0": { dist: { tarball: nexus + "/repository/npm-hosted/reserved-fixture/-/fixture.tgz" } } },
       }));
     });
     servers.push(upstream);
@@ -181,11 +190,12 @@ describe("Workstation TypeScript Daemons", () => {
       const fetchOriginal = globalThis.fetch;
       globalThis.fetch = (target, options) => {
         const url = new URL(target);
-        return fetchOriginal(url.hostname === "registry.npmjs.org" ? ${JSON.stringify(origin)} + "/public" + url.pathname : target, options);
+        return fetchOriginal(url.hostname === "registry.npmjs.org" ? ${JSON.stringify(origin)} + "/public" + url.pathname
+          : url.origin === ${JSON.stringify(nexus)} ? ${JSON.stringify(origin)} + url.pathname : target, options);
       };
     `;
     const proc = spawn(NODE_BIN, ["--experimental-strip-types", "--import", "data:text/javascript," + encodeURIComponent(redirectPublic), LOCAL_PROXY_PATH], {
-      env: { ...process.env, MEGABYTE_LOCAL_PROXY_PORT: String(port), MEGABYTE_CACHE_ROOT: cacheDir, MEGABYTE_NEXUS_URL: origin, MEGABYTE_NPM_PRIVATE_NAMES: "reserved-fixture" },
+      env: { ...process.env, MEGABYTE_LOCAL_PROXY_PORT: String(port), MEGABYTE_CACHE_ROOT: cacheDir, MEGABYTE_NEXUS_URL: nexus, CREDENTIALS_DIRECTORY: cacheDir, MEGABYTE_NPM_PRIVATE_NAMES: "reserved-fixture" },
       stdio: "ignore",
     });
     children.push(proc);
@@ -211,6 +221,9 @@ describe("Workstation TypeScript Daemons", () => {
     status = 204;
     assert.equal((await fetch(path, { headers })).status, 502);
     assert.equal(publicHits, 1);
+    rmSync(secret);
+    assert.equal((await fetch(path, { headers })).status, 502);
+    assert.equal(hostedHits, 6);
     assert.equal(readFileSync(join(shard, digest + ".body.json"), "utf8"), "shared cache sentinel");
   });
 

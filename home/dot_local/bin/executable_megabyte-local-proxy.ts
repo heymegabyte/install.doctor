@@ -404,6 +404,23 @@ function isNpmHtml(repositoryName: string, contentType: string | undefined): boo
     /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType?.trim() ?? "");
 }
 
+function nexusNpmAccessHeaders(target: URL): Record<string, string> {
+  const directory = process.env.CREDENTIALS_DIRECTORY;
+  if (!directory || target.origin !== "https://nexus.megabyte.space" ||
+      target.username || target.password || target.hash ||
+      !target.pathname.startsWith("/repository/npm-hosted/")) return {};
+
+  const idFile = join(directory, "nexus-npm-access-client-id");
+  const secretFile = join(directory, "nexus-npm-access-client-secret");
+  if (!existsSync(idFile) && !existsSync(secretFile)) return {};
+  const id = readFileSync(idFile, "utf8").trim();
+  const secret = readFileSync(secretFile, "utf8").trim();
+  if (!/^[a-zA-Z0-9._-]+$/.test(id) || !/^[a-zA-Z0-9._-]+$/.test(secret)) {
+    throw new Error("Invalid private npm Access credentials");
+  }
+  return { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret };
+}
+
 async function handlePrivateNpm(
   relativePath: string,
   req: IncomingMessage,
@@ -417,8 +434,9 @@ async function handlePrivateNpm(
   }
 
   try {
-    const headers = { authorization, accept: req.headers.accept ?? "application/json" };
-    const remote = await fetch(CONFIG.nexusBaseUrl + "/repository/npm-hosted/" + relativePath, {
+    const target = new URL(CONFIG.nexusBaseUrl + "/repository/npm-hosted/" + relativePath);
+    const headers = { authorization, accept: req.headers.accept ?? "application/json", ...nexusNpmAccessHeaders(target) };
+    const remote = await fetch(target, {
       headers,
       redirect: "error",
       signal: AbortSignal.timeout(CONFIG.upstreamTimeoutMs),
