@@ -98,3 +98,17 @@ Legion's operator context still lacked both the host binding and
 the provisioned Universal Auth credential. These results cover the
 two enrolled identities and leave Legion enrollment, production
 catalog custody, and native historical-key recovery open.
+
+### Controller recovery reference, November 28
+
+The installed controller resolver's host-specific local store existed.
+File presence checks found none of the exact entries
+`encryption-password`, `ENCRYPTION_PASSWORD`, or `AGE_PASSWORD`.
+The explicit local existence checks also failed. The controller
+therefore needs the authorized recovery password reference restored
+to its protected local store before it can create or validate a
+production single-password package. Recheck that reference with
+`INSTALL_DOCTOR_SECRET_BACKEND=local get-secret --exists encryption-password`.
+Then prove native historical recovery with the approved package and
+ordinary secret services unavailable. No secret contents were read
+during the file presence checks.
