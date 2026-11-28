@@ -42,7 +42,7 @@ Optional runtimes and integrations are lazy by default. Selecting software does 
 |---|---:|---|
 | `INSTALL_DOCTOR_OLLAMA` | `0` | Configure the loopback Ollama service and pull the approved model on a capable host. |
 | `INSTALL_DOCTOR_LITELLM_ENROLL` | `0` | Enroll an already-selected Ollama host in the authenticated LiteLLM gateway. |
-| `INSTALL_DOCTOR_CUA_DRIVER` | `0` | Install and configure Cua Driver on an interactive desktop. |
+| `INSTALL_DOCTOR_CUA_DRIVER` | `0` | Configure an installed Cua Driver and native user startup on an interactive desktop. Register desktop tools and skills separately in explicitly authorized agent harnesses. |
 | `INSTALL_DOCTOR_KASMVNC` | `0` | Configure and optionally start the loopback KasmVNC desktop bridge. |
 | `INSTALL_DOCTOR_NEXUS_CACHE` | `0` | Configure the local proxy and Nexus package-cache integration. |
 | `INSTALL_DOCTOR_GITOMATIC` | `0` | Enable the automatic repository synchronization service. |
