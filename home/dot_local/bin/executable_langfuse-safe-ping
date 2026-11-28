@@ -30,7 +30,10 @@ const client = new LangfuseSafeClient({
   spoolFilePath: join(process.env.LANGFUSE_SPOOL_DIR, 'traces.jsonl'),
 });
 const health = await client.probeHealth();
-const replay = health.healthy ? await client.replaySpool() : { replayed: 0, remaining: 0 };
+const authenticated = Boolean(process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY);
+const replay = health.healthy && authenticated
+  ? await client.replaySpool()
+  : { replayed: 0, remaining: null, replayStatus: authenticated ? 'unavailable' : 'credentials_unavailable' };
 console.log(JSON.stringify({ ...health, ...replay, failOpen: true }));
 NODE
     printf '{"healthy":false,"failOpen":true,"error":"probe_fallback"}\n'
