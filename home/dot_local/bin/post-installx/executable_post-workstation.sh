@@ -2722,15 +2722,24 @@ EOF
   cat > "$TMP_DIR/fleet-zfs-autosnap-guard" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-for pool in $(zpool list -H -o name 2>/dev/null || true); do
+refuse() {
+  printf "%s\n" "$*" >&2
+  exit 75
+}
+if ! pools=$(zpool list -Hp -o name,capacity) || [[ -z "$pools" ]]; then
+  refuse "Unable to read ZFS pool capacities. Refusing automatic snapshot mutation."
+fi
+while IFS=$'\t' read -r pool capacity extra; do
   max_cap="${FLEET_ZFS_MAX_CAP:-85}"
-  [ "$pool" = "bpool" ] && max_cap=65
-  cap="$(zpool list -H -o capacity "$pool" 2>/dev/null | tr -d '%' || echo 0)"
-  if [ "${cap:-0}" -ge "$max_cap" ]; then
-    logger -p daemon.err -t fleet-zfs-autosnap-guard "Pool $pool at ${cap}% (>= ${max_cap}%); refusing automatic snapshot mutation"
-    exit 75
+  if [[ "$pool" == bpool ]]; then max_cap=65; fi
+  if [[ -z "$pool" || -n "$extra" || ! "$capacity" =~ ^[0-9]{1,3}$ || ! "$max_cap" =~ ^[0-9]{1,3}$ ]] ||
+     (( 10#$capacity > 100 || 10#$max_cap < 1 || 10#$max_cap > 100 )); then
+    refuse "Invalid ZFS capacity or threshold. Refusing automatic snapshot mutation."
   fi
-done
+  if (( 10#$capacity >= 10#$max_cap )); then
+    refuse "Pool $pool at ${capacity}% (>= ${max_cap}%). Refusing automatic snapshot mutation."
+  fi
+done <<<"$pools"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-zfs-autosnap-guard" /usr/local/bin/fleet-zfs-autosnap-guard
   run_root install -d -m 0755 /etc/systemd/system/sanoid.service.d
