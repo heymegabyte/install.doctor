@@ -18,7 +18,7 @@ snapshot() {
     -exec cksum {} \; | LC_ALL=C sort
 }
 before="$(snapshot)"
-for command in cua-driver cua systemctl; do
+for command in cua-driver cua systemd-analyze; do
   cat > "$HOME/.local/bin/$command" <<'STUB'
 #!/usr/bin/env bash
 printf '%s %s\n' "${0##*/}" "$*" >> "$CUA_TEST_LOG"
@@ -31,6 +31,19 @@ INSTALL_DOCTOR_CUA_DRIVER=1 HEADLESS_INSTALL=1 bash "$hook"
 [[ "$(snapshot)" == "$before" ]]
 
 if [[ "$(uname -s)" == Linux ]] && (( EUID != 0 )); then
+  cp "$root/home/dot_local/bin/executable_configure-cua-linux-autostart" \
+    "$HOME/.local/bin/configure-cua-linux-autostart"
+  cat > "$HOME/.local/bin/systemctl" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'systemctl %s\n' "$*" >> "$CUA_TEST_LOG"
+if [[ "$*" == '--user --no-reload enable agent-fleet-cua.service' ]]; then
+  unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$unit_dir/graphical-session.target.wants"
+  ln -s "$unit_dir/agent-fleet-cua.service" "$unit_dir/graphical-session.target.wants/agent-fleet-cua.service"
+fi
+STUB
+  chmod +x "$HOME/.local/bin/systemctl"
   cat > "$HOME/.local/bin/loginctl" <<'STUB'
 #!/usr/bin/env bash
 mode=${FIXTURE_CUA_SESSION_MODE:-local}
@@ -69,8 +82,20 @@ STUB
   [[ ! -d "$HOME/.agents" ]]
   [[ ! -d "$HOME/.openclaw" ]]
   [[ "$(grep -cFx 'cua-driver telemetry disable' "$CUA_TEST_LOG")" -eq 2 ]]
-  [[ "$(grep -cFx 'systemctl --user enable --now agent-fleet-cua.service' "$CUA_TEST_LOG")" -eq 2 ]]
+  [[ "$(grep -cFx 'systemctl --user --no-reload enable agent-fleet-cua.service' "$CUA_TEST_LOG")" -eq 1 ]]
+  unit="$HOME/.config/systemd/user/agent-fleet-cua.service"
+  grep -Fxq 'WantedBy=graphical-session.target' "$unit"
+  grep -Fxq 'PartOf=graphical-session.target' "$unit"
+  ! grep -Eq '^Environment=(WAYLAND_DISPLAY|DISPLAY)=' "$unit"
+  ! grep -F 'systemctl --user start ' "$CUA_TEST_LOG"
   ! grep -F 'cua-driver skills' "$CUA_TEST_LOG"
+  printf '# local customization\n' >> "$unit"
+  unit_before="$(cksum "$unit")"
+  if "$HOME/.local/bin/configure-cua-linux-autostart"; then
+    echo 'A custom Cua Driver unit was accepted for replacement.' >&2
+    exit 1
+  fi
+  [[ "$(cksum "$unit")" == "$unit_before" ]]
 fi
 
 # Compare a corrupt download before extraction or command publication.

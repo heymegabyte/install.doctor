@@ -143,28 +143,7 @@ EOF
   launchctl unload "$plist" >/dev/null 2>&1 || true
   launchctl load -w "$plist" >/dev/null 2>&1 || true
 else
-  unit_dir="$HOME/.config/systemd/user"
-  mkdir -p "$unit_dir"
-  cat >"$unit_dir/agent-fleet-cua.service" <<EOF
-[Unit]
-Description=Cua local desktop computer-use driver
-After=graphical-session.target
-PartOf=graphical-session.target
-
-[Service]
-ExecStart=$HOME/.local/bin/cua-driver serve
-Environment=CUA_DRIVER_RS_ENABLE_WAYLAND=1
-Environment=WAYLAND_DISPLAY=wayland-0
-Environment=DISPLAY=:0
-Restart=on-failure
-RestartSec=5
-UMask=0077
-
-[Install]
-WantedBy=graphical-session.target default.target
-EOF
-  systemctl --user daemon-reload >/dev/null 2>&1 || true
-  systemctl --user enable --now agent-fleet-cua.service >/dev/null 2>&1 || true
+  "$HOME/.local/bin/configure-cua-linux-autostart"
 fi
 
 log "Cua Driver configured and autostart enabled on $OS"

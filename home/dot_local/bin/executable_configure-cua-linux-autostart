@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! systemctl --user is-active --quiet graphical-session.target; then
+  printf 'Cua Driver requires an active systemd graphical session target.\n' >&2
+  exit 78
+fi
+
+unit=agent-fleet-cua.service
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+path="$unit_dir/$unit"
+legacy_link="$unit_dir/default.target.wants/$unit"
+graphical_link="$unit_dir/graphical-session.target.wants/$unit"
+mkdir -p -- "$unit_dir"
+scratch=$(mktemp -d "$unit_dir/.cua-unit.XXXXXX")
+candidate="$scratch/$unit"
+had_unit=0 had_legacy=0 had_graphical=0 changed=0
+
+cleanup() {
+  local result=$?
+  if (( result != 0 && changed )); then
+    if (( had_unit )); then
+      mv -f -- "$scratch/previous" "$path" || result=1
+    else
+      unlink "$path" || result=1
+    fi
+    if (( had_legacy )) && [[ ! -L "$legacy_link" ]]; then
+      ln -s -- "$path" "$legacy_link" || result=1
+    fi
+    if (( !had_graphical )) && [[ -L "$graphical_link" && "$(readlink "$graphical_link")" == "$path" ]]; then
+      unlink "$graphical_link" || result=1
+    fi
+    systemctl --user daemon-reload || result=1
+  fi
+  if [[ -f "$scratch/previous" ]]; then unlink "$scratch/previous"; fi
+  if [[ -f "$candidate" ]]; then unlink "$candidate"; fi
+  rmdir "$scratch" || result=1
+  exit "$result"
+}
+trap cleanup EXIT
+
+cat > "$candidate" <<'UNIT'
+[Unit]
+Description=Cua local desktop computer-use driver
+After=graphical-session-pre.target
+PartOf=graphical-session.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/cua-driver serve
+Environment=CUA_DRIVER_RS_ENABLE_WAYLAND=1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target
+UNIT
+
+known_legacy_unit() {
+  cmp -s -- "$path" <(cat <<LEGACY
+[Unit]
+Description=Cua local desktop computer-use driver
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=$HOME/.local/bin/cua-driver serve
+Environment=CUA_DRIVER_RS_ENABLE_WAYLAND=1
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=DISPLAY=:0
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target default.target
+LEGACY
+  )
+}
+if [[ -e "$path" || -L "$path" ]]; then
+  if [[ -L "$path" ]] || { ! cmp -s -- "$candidate" "$path" && ! known_legacy_unit; }; then
+    printf 'Existing custom Cua Driver unit requires explicit reconciliation.\n' >&2
+    exit 78
+  fi
+  had_unit=1
+fi
+for link in "$legacy_link" "$graphical_link"; do
+  if [[ -e "$link" || -L "$link" ]]; then
+    if [[ ! -L "$link" || "$(readlink "$link")" != "$path" ]]; then
+      printf 'Existing custom Cua Driver enablement requires explicit reconciliation.\n' >&2
+      exit 78
+    fi
+    if [[ "$link" == "$legacy_link" ]]; then had_legacy=1; else had_graphical=1; fi
+  fi
+done
+
+if ! cmp -s -- "$candidate" "$path" || (( had_legacy || !had_graphical )); then
+  systemd-analyze --user verify "$candidate"
+  if (( had_unit )); then cp -p -- "$path" "$scratch/previous"; fi
+  chmod 0644 "$candidate"
+  mv -f -- "$candidate" "$path"
+  changed=1
+  if (( had_legacy )); then unlink "$legacy_link"; fi
+  systemctl --user --no-reload enable "$unit"
+  systemctl --user daemon-reload
+fi
+if ! systemctl --user is-active --quiet "$unit"; then
+  systemctl --user start "$unit"
+fi
+systemctl --user is-active --quiet "$unit"
