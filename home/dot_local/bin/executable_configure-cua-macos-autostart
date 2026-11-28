@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (( EUID == 0 )) || [[ "$(stat -f '%u' /dev/console)" != "$EUID" ]]; then
+  printf 'Cua Driver requires the active macOS console user.\n' >&2
+  exit 78
+fi
+domain="gui/$EUID"
+label=com.trycua.cua-driver
+launch_dir="$HOME/Library/LaunchAgents"
+plist="$launch_dir/$label.plist"
+legacy="$launch_dir/ai.cua.driver.plist"
+app=/Applications/CuaDriver.app
+binary="$app/Contents/MacOS/cua-driver"
+
+/bin/launchctl print "$domain" >/dev/null
+if [[ -e "$legacy" || -L "$legacy" ]] || /bin/launchctl print "$domain/ai.cua.driver" >/dev/null 2>&1; then
+  printf 'Existing legacy Cua LaunchAgent requires explicit reconciliation.\n' >&2
+  exit 78
+fi
+test -x "$binary"
+test ! -L "$app"
+/usr/bin/codesign --verify --deep --strict \
+  -R='anchor apple generic and identifier "com.trycua.driver" and certificate leaf[subject.OU] = "YCK386LBJ7"' "$app"
+
+mkdir -p -- "$launch_dir"
+candidate=$(mktemp "$launch_dir/.$label.XXXXXX")
+trap 'unlink "$candidate"' EXIT
+cat > "$candidate" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trycua.cua-driver</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/CuaDriver.app/Contents/MacOS/cua-driver</string>
+    <string>serve</string>
+  </array>
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+/usr/bin/plutil -lint "$candidate" >/dev/null
+
+if [[ -e "$plist" || -L "$plist" ]]; then
+  if [[ -L "$plist" ]] || ! cmp -s -- "$candidate" "$plist"; then
+    printf 'Existing custom Cua LaunchAgent requires explicit reconciliation.\n' >&2
+    exit 78
+  fi
+fi
+if /bin/launchctl print "$domain/$label" >/dev/null 2>&1; then
+  printf 'Cua LaunchAgent is already loaded; the existing driver was preserved.\n'
+  exit 0
+fi
+disabled=$(/bin/launchctl print-disabled "$domain")
+if grep -Fq '"com.trycua.cua-driver" => disabled' <<<"$disabled"; then
+  printf 'Cua LaunchAgent is disabled by existing launch policy.\n'
+  exit 0
+fi
+
+running=0
+if driver_status=$("$binary" status 2>&1); then
+  if ! grep -Fxq 'Cua Driver daemon is running' <<<"$driver_status" ||
+     ! grep -Fxq '  permission mode: standard (built_in_default)' <<<"$driver_status" ||
+     ! grep -Fxq '  user policy: configured=false, active=false, valid=true' <<<"$driver_status" ||
+     ! grep -Fxq '  managed policy: configured=false, active=false, valid=true' <<<"$driver_status" ||
+     ! grep -Fxq '  capability manifest: configured=false, approved_at_startup=false, valid=true' <<<"$driver_status"; then
+    printf 'Existing Cua runtime policy requires explicit reconciliation.\n' >&2
+    exit 78
+  fi
+  running=1
+elif [[ "$driver_status" != 'Cua Driver daemon is not running' ]] ||
+     pgrep -u "$EUID" -f '^/Applications/CuaDriver[.]app/Contents/MacOS/cua-driver( |$)' >/dev/null; then
+  printf 'Could not determine whether Cua Driver already owns the session.\n' >&2
+  exit 78
+fi
+
+created=0
+if [[ ! -e "$plist" ]]; then
+  chmod 0644 "$candidate"
+  ln "$candidate" "$plist"
+  created=1
+fi
+if (( running )); then
+  printf 'Cua LaunchAgent staged for next login; the running daemon was preserved.\n'
+  exit 0
+fi
+if ! /bin/launchctl bootstrap "$domain" "$plist"; then
+  if (( created )); then unlink "$plist"; fi
+  exit 1
+fi
+/bin/launchctl print "$domain/$label" >/dev/null
+printf 'Cua LaunchAgent loaded. Check the signed app readiness and OS permissions in the GUI session.\n'

@@ -116,34 +116,9 @@ try {
   fi
 fi
 
-# Configure native user autostart (avoiding duplicate daemons)
 if [ "$OS" = "macos" ]; then
-  la_dir="$HOME/Library/LaunchAgents"
-  mkdir -p "$la_dir"
-  plist="$la_dir/ai.cua.driver.plist"
-  cat >"$plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>ai.cua.driver</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$HOME/.local/bin/cua-driver</string>
-    <string>serve</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-</dict>
-</plist>
-EOF
-  launchctl unload "$plist" >/dev/null 2>&1 || true
-  launchctl load -w "$plist" >/dev/null 2>&1 || true
+  "$HOME/.local/bin/configure-cua-macos-autostart"
 else
   "$HOME/.local/bin/configure-cua-linux-autostart"
+  log "Cua Driver configured and autostart enabled on $OS"
 fi
-
-log "Cua Driver configured and autostart enabled on $OS"

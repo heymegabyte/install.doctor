@@ -1,0 +1,3 @@
+- [x] Verify and stage the upstream signed-app LaunchAgent with idempotent behavior.
+- [ ] Deploy on the enrolled Mac and prove its running driver remains active.
+- [ ] Verify next-login activation and actual OS permission behavior during coordinated maintenance.
