@@ -211,3 +211,19 @@ event acquisition.
   exercise parsing and blocking without banning a shared proxy or
   interrupting management. Arm a local rollback before activating the
   policy. Keep one ban owner.
+
+The installed CrowdSec binary accepted the candidate
+`_SYSTEMD_USER_UNIT=agent-fleet-sshd.service` filter in a private mount
+namespace. That filter plus `SYSLOG_IDENTIFIER=sshd` returned recent
+journal records. After cleanup, the production acquisition still
+contained the previous system-unit filter and both CrowdSec services
+were active.
+
+The installed parser classified a synthetic outside address as an SSH
+authentication failure eligible for brute-force scenarios. It classified
+the equivalent loopback event as whitelisted. Neither record entered
+production acquisition. Live activation still requires independent
+management access and proof that the active WARP or Tunnel path does
+not attribute unrelated clients to a shared ban target.
+
+[CrowdSec journald acquisition](https://docs.crowdsec.net/docs/log_processor/data_sources/journald/)
