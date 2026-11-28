@@ -188,3 +188,10 @@ remained unchanged. The installed SHA-256 is
 The previous pinned writer is saved with suffix
 `.pre-required-sources-20261128`. The next scheduled capture must
 still exercise the checks with repository credentials.
+
+Run `bash scripts/test-restic-writer-safety.sh` to repeat the generated
+writer regression test. It renders the actual hook heredoc, redirects
+paths into a disposable local repository, and verifies that a missing
+repository and a mismatched identity cannot create snapshots. The
+correct identity must add one snapshot while preserving both prior
+snapshots. The fixture passed with the local Restic CLI.
